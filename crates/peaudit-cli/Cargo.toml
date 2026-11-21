@@ -1,0 +1,21 @@
+[package]
+name = "peaudit-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+description = "Command-line interface for peaudit"
+
+[[bin]]
+name = "peaudit"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+peaudit-core = { path = "../peaudit-core" }
+clap.workspace = true

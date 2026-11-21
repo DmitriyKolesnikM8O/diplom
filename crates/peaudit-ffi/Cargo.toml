@@ -1,0 +1,19 @@
+[package]
+name = "peaudit-ffi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+description = "C ABI bindings for peaudit"
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+peaudit-core = { path = "../peaudit-core" }
