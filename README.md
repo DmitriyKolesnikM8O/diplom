@@ -1,5 +1,8 @@
 # peaudit
 
+[![CI](https://github.com/DmitriyKolesnikM8O/diplom/actions/workflows/ci.yml/badge.svg)](https://github.com/DmitriyKolesnikM8O/diplom/actions/workflows/ci.yml)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#лицензия)
+
 **Открытый инструмент статического анализа PE-файлов.** Устойчивый к враждебному
 входу парсер, структурные проверки, три независимых вердикта и машиночитаемый отчёт.
 
