@@ -27,6 +27,7 @@
 | PE-DOS-003 | Нет сигнатуры PE | по `e_lfanew` не `PE\0\0` | Critical | S L Sec | high | — | P0 |
 | PE-DOS-004 | Аномальный DOS stub | stub > 4 КиБ, содержит `MZ`/`PE`, нет стандартного сообщения | Info | Sec | low | med | P2 |
 | PE-DOS-005 | PE-заголовок вне заголовков | `e_lfanew` указывает в секцию/overlay, а не в headers | High | S L Sec | high | low | P1 |
+| PE-DOS-006 | Нет `MZ`, но есть валидный PE | первые 2 байта не `MZ`, при этом по смещению валидный `PE\0\0` | High | S L Sec | high | low | P1 |
 
 **Тесты:** builder с `e_lfanew` = 0, 0x3F, EOF−2, EOF+100, в хвосте секции.
 
@@ -65,6 +66,7 @@
 | PE-OPT-012 | Аномальный стек/куча | reserve/commit = 0 или > 1 ГиБ | Low | S Sec | medium | low | P2 |
 | PE-OPT-013 | Заголовки больше файла | `SizeOfHeaders > file_size` | Critical | S L Sec | high | — | P1 |
 | PE-OPT-014 | `LoaderFlags != 0` | зарезервированное поле не 0 | Info | S | high | low | P2 |
+| PE-OPT-015 | Адрес директории без размера | `VirtualAddress != 0`, `Size == 0` (загрузчик игнорирует, парсер может разбирать) | Medium | S L Sec | high | low | P1 |
 
 \* DLL без entry point — норма; EXE с EP вне кода — нет.
 \** Многие легитимные файлы имеют `CheckSum == 0` — такие не флагуем.
@@ -92,6 +94,8 @@
 | PE-SEC-014 | `VirtualSize >> SizeOfRawData` | > 16× и > 1 МиБ | Medium | Sec | medium | low | P1 |
 | PE-SEC-015 | Большая zero-filled секция | raw > 64 КиБ и > 99% нулей | Info | Sec | high | high | P2 |
 | PE-SEC-016 | VA = 0 при размере > 0 | секция «наезжает» на заголовки | Medium | S Sec | high | low | P2 |
+| PE-SEC-017 | «Скрытые» заголовки секций | валидные 40-байтные записи сверх `NumberOfSections` (загрузчик игнорирует, сканирующий парсер прочитает) | Medium | S L Sec | medium | low | P2 |
+| PE-SEC-018 | Виртуальная исполняемая секция | `SizeOfRawData == 0`, `VirtualSize > 0`, флаг EXECUTE, имя не `.bss` | Medium | Sec | medium | med | P2 |
 
 **Особый случай (из `notes.md` №4):** PE-SEC-013 — ровно тот трюк, когда добавляют пустые
 секции и увеличивают `NumberOfSections`: загрузчик принимает, парсеры ломаются. Обязательный
@@ -109,6 +113,7 @@
 | PE-RICH-004 | Несогласованные build ID | дубликаты/аномальные `comp.id` | Low | Sec | medium | med | P2 |
 | PE-RICH-005 | Rich перекрывает PE | выход за stub / пересечение с PE-заголовком | High | S L Sec | high | — | P1 |
 | PE-RICH-006 | Абсурдное число записей | > 10 000 | Low | Sec | high | — | P2 |
+| PE-RICH-007 | Разрыв между Rich и PE | мусорные байты между концом Rich-блока и `PE\0\0` | Low | Sec | medium | low | P2 |
 
 **Тесты:** собрать Rich через builder; испортить ключ; занулить блок; сравнить checksum
 с `pefile` на 100 системных DLL (фаза 7).
@@ -158,11 +163,13 @@
 | PE-TLS-001 | TLS callbacks присутствуют | directory непустая | Info | Sec | high | high** | P1 |
 | PE-TLS-002 | TLS вне образа | директория/callback не маппится | High | S L Sec | high | — | P1 |
 | PE-TLS-003 | Callback в неисполняемой памяти | целевая секция без EXECUTE | Medium | Sec | medium | med | P2 |
+| PE-TLS-004 | Массив callbacks без терминатора | нет завершающего нуля или массив выходит за секцию | High | S L Sec | high | low | P1 |
 | PE-DBG-001 | Debug directory вне образа | RVA/размер невалиден | Medium | S Sec | high | low | P2 |
 | PE-DBG-002 | Аномальный PDB-путь | абсолютный пользовательский путь, огромная длина, несоответствие | Info | Sec | low | high | P2 |
 | PE-CERT-001 | Certificate table невалиден | вне файла, размер не кратен 8, `WIN_CERTIFICATE` битый | High | S L Sec | high | low | P1 |
 | PE-CERT-002 | Данные после подписи | overlay за пределами certificate table | Medium | Sec | medium | med | P1 |
 | PE-CERT-003 | Директория без подписи | size > 0, но структура пустая/нулевая | Medium | S Sec | high | low | P2 |
+| PE-CERT-004 | Certificate table пересекается с секцией | диапазон cert table пересекается с raw-диапазоном секции или overlay | Medium | S Sec | high | low | P2 |
 
 \* Сжатые ресурсы — норма; поэтому Low и confidence medium.
 \** TLS callbacks массово используются легитимно (антидебаг/инициализация), score 0.
@@ -204,10 +211,10 @@
 | Приоритет | Кол-во | Что входит |
 |---|---|---|
 | P0 | 13 | Минимальный парсер + базовые проверки заголовков/секций |
-| P1 | ~40 | Rich, overlay, директории, TLS/cert, энтропия, loader |
-| P2 | ~30 | Тонкие эвристики, posture, вложенные PE, PDB |
+| P1 | ~43 | Rich, overlay, директории, TLS/cert, энтропия, loader |
+| P2 | ~34 | Тонкие эвристики, posture, вложенные PE, PDB |
 
-Итого ~83 правила в backlog; для полной версии достаточно 40+ правил из P0/P1.
+Итого ~90 правил в backlog; для полной версии достаточно 40+ правил из P0/P1.
 Остальное — задел и «future work».
 
 ---
