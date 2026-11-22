@@ -165,6 +165,85 @@ impl<'a> Reader<'a> {
             .map(u64::from_le_bytes)
     }
 
+    /// Peeks at one unsigned byte without advancing the cursor.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the buffer is exhausted.
+    pub fn peek_u8(&self) -> Result<u8, ParseError> {
+        self.peek_array::<1>("u8").map(u8::from_le_bytes)
+    }
+
+    /// Peeks at a little-endian `u16` without advancing the cursor.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if fewer than 2 bytes remain.
+    pub fn peek_u16(&self) -> Result<u16, ParseError> {
+        self.peek_array::<2>("u16").map(u16::from_le_bytes)
+    }
+
+    /// Peeks at a little-endian `u32` without advancing the cursor.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if fewer than 4 bytes remain.
+    pub fn peek_u32(&self) -> Result<u32, ParseError> {
+        self.peek_array::<4>("u32").map(u32::from_le_bytes)
+    }
+
+    /// Compares the bytes at the cursor with `expected` without advancing.
+    ///
+    /// This is how signatures such as `MZ` and `PE\0\0` are checked: the cursor
+    /// stays in place, so a failed check does not consume input.
+    ///
+    /// # Errors
+    ///
+    /// Returns `UnexpectedEof` if fewer than `expected.len()` bytes remain, or
+    /// `InvalidValue` if the bytes differ.
+    pub fn check_bytes(&self, expected: &[u8], context: &'static str) -> Result<(), ParseError> {
+        let end = self
+            .offset
+            .checked_add(expected.len())
+            .ok_or_else(|| ParseError::overflow(self.offset, context))?;
+        let actual = self
+            .data
+            .get(self.offset..end)
+            .ok_or_else(|| ParseError::unexpected_eof(self.offset, context))?;
+        if actual != expected {
+            return Err(ParseError::invalid_value(self.offset, context));
+        }
+        Ok(())
+    }
+
+    /// Returns an absolute range of the input without moving the cursor.
+    ///
+    /// # Errors
+    ///
+    /// Returns `OutOfBounds` if `offset + len` exceeds the buffer, or
+    /// `ArithmeticOverflow` if the sum overflows.
+    pub fn slice(&self, offset: usize, len: usize) -> Result<&'a [u8], ParseError> {
+        let end = offset
+            .checked_add(len)
+            .ok_or_else(|| ParseError::overflow(offset, "slice"))?;
+        self.data
+            .get(offset..end)
+            .ok_or_else(|| ParseError::out_of_bounds(offset, "slice"))
+    }
+
+    /// Creates an independent reader over an absolute range of the input.
+    ///
+    /// Offsets inside the returned reader are relative to the start of the
+    /// range, so a caller that needs absolute offsets must add the range start.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Reader::slice`].
+    pub fn sub_reader(&self, offset: usize, len: usize) -> Result<Self, ParseError> {
+        let bytes = self.slice(offset, len)?;
+        Ok(Self::new(bytes))
+    }
+
     /// Reads a NUL-terminated string without the terminator.
     ///
     /// The returned slice borrows the input; it is not validated as UTF-8.
@@ -242,7 +321,23 @@ impl<'a> Reader<'a> {
         &mut self,
         context: &'static str,
     ) -> Result<[u8; N], ParseError> {
-        let bytes = self.take_with_context(N, context)?;
+        let array = self.peek_array::<N>(context)?;
+        self.offset = self
+            .offset
+            .checked_add(N)
+            .ok_or_else(|| ParseError::overflow(self.offset, context))?;
+        Ok(array)
+    }
+
+    fn peek_array<const N: usize>(&self, context: &'static str) -> Result<[u8; N], ParseError> {
+        let end = self
+            .offset
+            .checked_add(N)
+            .ok_or_else(|| ParseError::overflow(self.offset, context))?;
+        let bytes = self
+            .data
+            .get(self.offset..end)
+            .ok_or_else(|| ParseError::unexpected_eof(self.offset, context))?;
         let mut array = [0u8; N];
         array.copy_from_slice(bytes);
         Ok(array)
@@ -402,6 +497,90 @@ mod tests {
         let mut reader = Reader::new(&[1, 2, 3, 4]);
         assert_eq!(reader.read_array::<4>().unwrap(), [1, 2, 3, 4]);
         assert!(reader.is_exhausted());
+    }
+
+    #[test]
+    fn peek_does_not_advance_cursor() {
+        let mut reader = Reader::new(&[0x11, 0x22, 0x33, 0x44]);
+        assert_eq!(reader.peek_u8().unwrap(), 0x11);
+        assert_eq!(reader.peek_u16().unwrap(), 0x2211);
+        assert_eq!(reader.peek_u32().unwrap(), 0x4433_2211);
+        assert_eq!(reader.offset(), 0);
+        assert_eq!(reader.read_u8().unwrap(), 0x11);
+    }
+
+    #[test]
+    fn peek_at_end_fails_without_moving() {
+        let reader = Reader::new(&[]);
+        let error = reader.peek_u8().unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::UnexpectedEof);
+        assert_eq!(reader.offset(), 0);
+    }
+
+    #[test]
+    fn peek_u32_with_insufficient_bytes_fails() {
+        let reader = Reader::new(&[1, 2, 3]);
+        assert_eq!(
+            reader.peek_u32().unwrap_err().kind(),
+            ErrorKind::UnexpectedEof
+        );
+        assert_eq!(reader.peek_u16().unwrap(), 0x0201);
+    }
+
+    #[test]
+    fn check_bytes_compares_without_consuming() {
+        let mut reader = Reader::new(b"PE\0\0rest");
+        reader.check_bytes(b"PE\0\0", "PE signature").unwrap();
+        assert_eq!(reader.offset(), 0);
+        assert_eq!(reader.read_u32().unwrap(), 0x0000_4550);
+    }
+
+    #[test]
+    fn check_bytes_reports_mismatch() {
+        let reader = Reader::new(b"MZxx");
+        let error = reader.check_bytes(b"PE\0\0", "PE signature").unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidValue);
+        assert_eq!(error.offset(), 0);
+        assert_eq!(reader.offset(), 0);
+    }
+
+    #[test]
+    fn check_bytes_reports_truncation() {
+        let reader = Reader::new(b"PE");
+        let error = reader.check_bytes(b"PE\0\0", "PE signature").unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::UnexpectedEof);
+    }
+
+    #[test]
+    fn slice_returns_absolute_range() {
+        let reader = Reader::new(&[0, 1, 2, 3, 4, 5]);
+        assert_eq!(reader.slice(2, 3).unwrap(), &[2, 3, 4]);
+        assert_eq!(reader.offset(), 0);
+    }
+
+    #[test]
+    fn slice_rejects_out_of_bounds_and_overflow() {
+        let reader = Reader::new(&[0, 1, 2]);
+        assert_eq!(
+            reader.slice(2, 2).unwrap_err().kind(),
+            ErrorKind::OutOfBounds
+        );
+        assert_eq!(
+            reader.slice(usize::MAX, 1).unwrap_err().kind(),
+            ErrorKind::ArithmeticOverflow
+        );
+    }
+
+    #[test]
+    fn sub_reader_is_independent() {
+        let mut reader = Reader::new(&[1, 2, 3, 4, 5, 6]);
+        let mut sub = reader.sub_reader(2, 3).unwrap();
+        assert_eq!(sub.len(), 3);
+        assert_eq!(sub.read_u8().unwrap(), 3);
+        assert_eq!(sub.read_u16().unwrap(), 0x0504);
+        assert!(sub.is_exhausted());
+        assert_eq!(reader.offset(), 0);
+        assert_eq!(reader.read_u8().unwrap(), 1);
     }
 
     #[test]

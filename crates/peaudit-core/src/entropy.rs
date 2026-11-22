@@ -236,7 +236,7 @@ impl WindowState {
 
 #[cfg(test)]
 mod tests {
-    use super::{EntropyProfile, shannon_entropy};
+    use super::{EntropyProfile, WindowState, shannon_entropy};
 
     const EPSILON: f64 = 1e-9;
 
@@ -382,6 +382,86 @@ mod tests {
                 len - window + 1
             };
             assert_eq!(profile.windows, expected_windows);
+        }
+    }
+
+    #[test]
+    fn incremental_window_matches_direct_entropy() {
+        let mut state = 0x0BAD_F00D_1234_5678_u64;
+        for _ in 0..64 {
+            let len = 64 + (next_random(&mut state) % 960) as usize;
+            let window = 8 + (next_random(&mut state) % 120) as usize;
+            if window > len {
+                continue;
+            }
+
+            let mut data = vec![0u8; len];
+            for byte in &mut data {
+                *byte = (next_random(&mut state) & 0xFF) as u8;
+            }
+
+            let mut window_state = WindowState::new(window);
+            if let Some(initial) = data.get(..window) {
+                for &byte in initial {
+                    window_state.add(byte);
+                }
+            }
+
+            for offset in 0..=(len - window) {
+                let Some(slice) = data.get(offset..offset + window) else {
+                    continue;
+                };
+                let direct = shannon_entropy(slice);
+                let incremental = window_state.entropy();
+                assert!(
+                    (incremental - direct).abs() < 1e-6,
+                    "offset {offset}: incremental {incremental} vs direct {direct}"
+                );
+
+                if offset + window < len {
+                    if let (Some(outgoing), Some(incoming)) =
+                        (data.get(offset), data.get(offset + window))
+                    {
+                        window_state.remove(*outgoing);
+                        window_state.add(*incoming);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn profile_maximum_matches_direct_maximum() {
+        let mut state = 0xFEED_FACE_CAFE_BEEF_u64;
+        for _ in 0..32 {
+            let len = 32 + (next_random(&mut state) % 256) as usize;
+            let window = 4 + (next_random(&mut state) % 32) as usize;
+            if window > len {
+                continue;
+            }
+
+            let mut data = vec![0u8; len];
+            for byte in &mut data {
+                *byte = (next_random(&mut state) & 0xFF) as u8;
+            }
+
+            let profile = EntropyProfile::compute(&data, window, 7.0);
+            let mut expected_max = 0.0_f64;
+            for offset in 0..=(len - window) {
+                let Some(slice) = data.get(offset..offset + window) else {
+                    continue;
+                };
+                let direct = shannon_entropy(slice);
+                if direct > expected_max {
+                    expected_max = direct;
+                }
+            }
+
+            assert!(
+                (profile.max_window - expected_max).abs() < 1e-9,
+                "profile {} vs direct {expected_max}",
+                profile.max_window
+            );
         }
     }
 

@@ -5,11 +5,10 @@
 //! [`Diagnostic`]s so that partial parsing can continue (see ADR-0003).
 //!
 //! All types in this module are [`Copy`] and allocation-free: an error never
-//! owns a message string, it carries a stable code and a static context.
+//! owns a message string, it carries a stable code, a static context and,
+//! when meaningful, the expected and actual numeric values.
 
 use core::fmt;
-
-use thiserror::Error;
 
 /// Category of a structural failure.
 ///
@@ -21,7 +20,7 @@ use thiserror::Error;
 pub enum ErrorKind {
     /// The input ended before the requested bytes were available.
     UnexpectedEof,
-    /// A seek went past the end of the input.
+    /// A seek or absolute slice went past the end of the input.
     OutOfBounds,
     /// Arithmetic on an offset or size overflowed `usize`.
     ArithmeticOverflow,
@@ -54,18 +53,23 @@ impl fmt::Display for ErrorKind {
     }
 }
 
-/// A failed read or seek on the input buffer.
+/// A failed read, seek or validation on the input buffer.
 ///
 /// `offset` points at the position where the operation started (for a failed
-/// read) or at the requested position (for a failed seek). `context` is a
-/// short static description of what was being read, for example `"u32"` or
-/// `"section table"`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-#[error("{kind} at offset {offset:#x} while reading {context}")]
+/// read) or at the requested position (for a failed seek or slice). `context`
+/// is a short static description of what was being read, for example `"u32"`
+/// or `"section count"`.
+///
+/// `expected` and `actual` are filled when the failure is numeric, for example
+/// when a value exceeds a limit. They are optional so that structural errors
+/// (a missing signature, a truncated header) stay allocation-free and small.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParseError {
     kind: ErrorKind,
     offset: usize,
     context: &'static str,
+    expected: Option<u64>,
+    actual: Option<u64>,
 }
 
 impl ParseError {
@@ -74,6 +78,8 @@ impl ParseError {
             kind,
             offset,
             context,
+            expected: None,
+            actual: None,
         }
     }
 
@@ -92,9 +98,25 @@ impl ParseError {
         Self::new(ErrorKind::ArithmeticOverflow, offset, context)
     }
 
+    /// Creates an "invalid value" error.
+    pub(crate) const fn invalid_value(offset: usize, context: &'static str) -> Self {
+        Self::new(ErrorKind::InvalidValue, offset, context)
+    }
+
     /// Creates a "limit exceeded" error.
     pub(crate) const fn limit_exceeded(offset: usize, context: &'static str) -> Self {
         Self::new(ErrorKind::LimitExceeded, offset, context)
+    }
+
+    /// Attaches the expected and actual numeric values.
+    ///
+    /// Used by limit checks so that a report can say "expected 96, got 100000"
+    /// instead of only "limit exceeded".
+    #[must_use]
+    pub(crate) const fn with_values(mut self, expected: u64, actual: u64) -> Self {
+        self.expected = Some(expected);
+        self.actual = Some(actual);
+        self
     }
 
     /// Returns the failure category.
@@ -114,7 +136,39 @@ impl ParseError {
     pub const fn context(self) -> &'static str {
         self.context
     }
+
+    /// Returns the expected value, if the failure is numeric.
+    #[must_use]
+    pub const fn expected(self) -> Option<u64> {
+        self.expected
+    }
+
+    /// Returns the actual value, if the failure is numeric.
+    #[must_use]
+    pub const fn actual(self) -> Option<u64> {
+        self.actual
+    }
 }
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{} at offset {:#x} while reading {}",
+            self.kind, self.offset, self.context
+        )?;
+        match (self.expected, self.actual) {
+            (Some(expected), Some(actual)) => {
+                write!(f, " (expected {expected}, got {actual})")
+            }
+            (Some(expected), None) => write!(f, " (expected {expected})"),
+            (None, Some(actual)) => write!(f, " (got {actual})"),
+            (None, None) => Ok(()),
+        }
+    }
+}
+
+impl std::error::Error for ParseError {}
 
 /// Severity of a [`Diagnostic`].
 ///
@@ -153,8 +207,8 @@ impl fmt::Display for DiagSeverity {
 ///
 /// Codes are dot-separated lowercase identifiers such as `"dos.mz-missing"`.
 /// Once released, a code is never renamed or reused: consumers may match on it
-/// in JSON reports. Codes are created as constants at the call site, so a typo
-/// is a missing constant rather than a silently different string.
+/// in JSON reports. Production code uses the constants from [`crate::codes`]
+/// rather than constructing strings at the call site.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DiagCode(&'static str);
 
@@ -298,6 +352,18 @@ mod tests {
         assert_eq!(error.kind(), ErrorKind::UnexpectedEof);
         assert_eq!(error.offset(), 0x10);
         assert_eq!(error.context(), "u32");
+        assert_eq!(error.expected(), None);
+        assert_eq!(error.actual(), None);
+    }
+
+    #[test]
+    fn parse_error_reports_expected_and_actual_values() {
+        let error = ParseError::limit_exceeded(0x40, "section count").with_values(96, 1000);
+        let text = error.to_string();
+        assert!(text.contains("expected 96"), "{text}");
+        assert!(text.contains("got 1000"), "{text}");
+        assert_eq!(error.expected(), Some(96));
+        assert_eq!(error.actual(), Some(1000));
     }
 
     #[test]

@@ -31,7 +31,7 @@
 |---|---|
 | 0. Bootstrap | готово (CI зелёный: ubuntu + windows) |
 | 1. Таксономия | готово (кроме согласования с руководителем) |
-| 2. Фундамент ядра | — |
+| 2. Фундамент ядра | готово (итерация A: лимиты, evidence, Reader, реестр кодов) |
 | 3. Заголовки PE | — |
 | 4. Производная модель | — |
 | 5. Правила и отчёт | — |
@@ -434,22 +434,35 @@ pub fn analyze_strict(bytes: &[u8], options: &AnalysisOptions) -> Result<Report,
 - **Паника** — дефект, а не стратегия. В ядре запрещена линтами; в FFI дополнительно
   `catch_unwind`.
 
-Стартовые лимиты:
+**Лимиты — это потолки безопасности, а не пороги спецификации.** Превышение
+порога спецификации (например, 97 секций) — находка правила; превышение
+safety-лимита — диагностика `LimitExceeded` и пропуск только этой подструктуры.
+Смешивать их нельзя: иначе анализатор перестанет видеть улики в самом интересном
+файле, а легитимная DLL с большим числом экспортов получит ложное «limit exceeded».
+
+Пороги спецификации — константы в `spec.rs`: `MAX_SECTIONS = 96`,
+`MAX_DATA_DIRECTORIES = 16`, `RESOURCE_TREE_DEPTH = 3`.
+
+Safety-лимиты (стартовые):
 
 ```rust
 pub struct Limits {
     pub max_file_size: u64,        // 512 MiB
-    pub max_sections: usize,       // 96 (по спецификации), можно поднять до 256
-    pub max_directories: usize,    // 16
-    pub max_imports: usize,        // 4096
-    pub max_exports: usize,        // 4096
-    pub max_resource_nodes: usize, // 4096
-    pub max_resource_depth: u8,    // 8
+    pub max_sections: usize,       // 4096 (safety; спецификация — 96)
+    pub max_directories: usize,    // 4096 (safety; спецификация — 16)
+    pub max_imports: usize,        // 65536
+    pub max_exports: usize,        // 65536
+    pub max_resource_nodes: usize, // 65536
+    pub max_resource_depth: u8,    // 32 (safety; спецификация — 3)
     pub max_string_len: usize,     // 4096
-    pub max_thunks_per_import: usize, // 8192
+    pub max_thunks_per_import: usize, // 65536
     pub max_entropy_window: usize, // 4096
 }
 ```
+
+Значения калибруются на системном корпусе (фаза 11): лимит должен быть высоко
+настолько, чтобы не срабатывать на легитимных файлах, и низко настолько, чтобы
+ограничивать работу на враждебном входе.
 
 ### 4.7. Профили строгости — ответ на вопрос из `materials/notes.md` №1
 
@@ -864,10 +877,10 @@ indexing_slicing = "warn"
 
 **DoD.**
 
-- [ ] 100% методов Reader покрыты тестами;
-- [ ] property-тест на 10k случайных входов зелёный;
-- [ ] `cargo doc` без warning;
-- [ ] бенчмарк энтропии на 10 МБ — есть базовое число.
+- [x] 100% методов Reader покрыты тестами;
+- [x] property-тест на 10k случайных входов зелёный;
+- [x] `cargo doc` без warning;
+- [x] бенчмарк энтропии на 10 МБ — есть базовое число.
 
 **Проверка:** `cargo test -p peaudit-core bytes entropy`.
 

@@ -32,7 +32,9 @@
 
 ## Статус
 
-Проект в начале разработки. Сейчас готов каркас: workspace, линты, тесты, CI.
+Проект в начале разработки. Готов фундамент ядра: безопасный `Reader`, модель
+ошибок и диагностик, safety-лимиты, хэши и энтропия со скользящим окном.
+Парсинг заголовков PE — следующий этап.
 
 План работ и текущий прогресс — [`materials/roadmap.md`](materials/roadmap.md).
 Каталог запланированных правил — [`materials/rules_catalog.md`](materials/rules_catalog.md).
@@ -76,6 +78,7 @@ materials/             рабочие материалы ВКР: план, ис�
 | [`docs/architecture.md`](docs/architecture.md) | слои, поток данных, принципы |
 | [`docs/adr/`](docs/adr/) | архитектурные решения: partial parsing, три профиля |
 | [`docs/backlog.md`](docs/backlog.md) | сознательно отложенные идеи |
+| [`docs/experiments/`](docs/experiments/) | зафиксированные замеры производительности |
 | [`materials/analysis.md`](materials/analysis.md) | анализ ниши, цель и задачи ВКР |
 | [`materials/roadmap.md`](materials/roadmap.md) | фазы разработки и критерии готовности |
 | [`materials/rules_catalog.md`](materials/rules_catalog.md) | каталог правил с приоритетами |

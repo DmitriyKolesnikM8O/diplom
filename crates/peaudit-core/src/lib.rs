@@ -9,10 +9,12 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod bytes;
+pub mod codes;
 pub mod entropy;
 pub mod error;
 pub mod hash;
 pub mod limits;
+pub mod spec;
 
 pub use bytes::Reader;
 pub use entropy::{EntropyProfile, shannon_entropy};
