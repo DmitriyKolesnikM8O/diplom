@@ -31,7 +31,7 @@
 |---|---|
 | 0. Bootstrap | готово (CI зелёный: ubuntu + windows) |
 | 1. Таксономия | готово (кроме согласования с руководителем) |
-| 2. Фундамент ядра | готово (итерация A: лимиты, evidence, Reader, реестр кодов) |
+| 2. Фундамент ядра | готово (итерации A+B: лимиты, evidence, Reader, коды, хэши, CI) |
 | 3. Заголовки PE | — |
 | 4. Производная модель | — |
 | 5. Правила и отчёт | — |
@@ -496,8 +496,12 @@ pub struct Limits {
 Ядро (минимум):
 
 - `serde`, `serde_json` — отчёт;
-- `sha2`, `sha1`, `md-5` — хэши (для триажа; можно оставить только SHA-256);
-- `thiserror` — ошибки.
+- `sha2`, `sha1`, `md-5` — хэши (для триажа). По умолчанию считается только
+  SHA-256: каждый хэш — полный проход по файлу, а SHA-1/MD5 нужны лишь для сверки
+  с внешними базами (`--hashes all`). Замер: 8.6 мс против 47.2 мс на 10 МиБ,
+  см. `docs/experiments/2026-11-22-hash-baseline.md`;
+- `thiserror` — не нужен: ошибки в ядре реализуют `Display`/`Error` вручную,
+  чтобы остаться `Copy` и без зависимостей.
 
 CLI: `clap` (derive), `walkdir`, `anyhow` (только верхний уровень).
 
@@ -707,7 +711,13 @@ let bytes = PeBuilder::pe32()
 - Matrix: `ubuntu-latest`, `windows-latest`.
 - Шаги: checkout → toolchain (1.99.1, синхронизирован с `rust-toolchain.toml`; rustfmt + clippy) → cache → fmt → clippy →
   test → doc → build release.
-- Отдельный job: `cargo-deny` (лицензии/дубликаты/уязвимости), `cargo-audit`.
+- Отдельные job'ы:
+  - `msrv` — `cargo check` на 1.85.0, чтобы заявленный `rust-version` проверялся;
+  - `check-32bit` — `cargo check --target i686-unknown-linux-gnu`, чтобы код не
+    полагался на 64-битный `usize`;
+  - `deny` — `cargo-deny check` (лицензии, уязвимости RUSTSEC, источники, дубликаты);
+    отдельный `cargo-audit` не нужен, advisories уже входят в `cargo-deny`.
+- Dependabot: еженедельные PR на `cargo` и `github-actions` (`.github/dependabot.yml`).
 - Опционально: coverage (`cargo-llvm-cov`) на Linux, без блокировки merge.
 - Release workflow: по тегу `v*` собирает `peaudit.exe` (Windows) и `peaudit` (Linux),
   прикладывает `peaudit.h`, `report.schema.json`, checksums.
@@ -793,8 +803,8 @@ indexing_slicing = "warn"
 4. `.cargo/config.toml` с алиасом `xtask = "run --package xtask --"`.
 5. `xtask`: подкоманда `ci` (fmt/clippy/test/doc), заглушки `schema`, `rules-doc`,
    `corpus`, `experiment`, `bench`.
-6. `.github/workflows/ci.yml` (matrix ubuntu/windows). `cargo-deny`/`cargo-audit` —
-   отдельной задачей, когда появится заметное дерево зависимостей (сейчас проверять нечего).
+6. `.github/workflows/ci.yml` (matrix ubuntu/windows). `cargo-deny` добавлен позже,
+   в фазе 2 (итерация B), вместе с MSRV, 32-битной целью и Dependabot.
 7. Лицензии MIT/Apache-2.0, `README.md` (кратко: что/зачем/как), `CONTRIBUTING.md`,
    `SECURITY.md`, `CHANGELOG.md`.
 8. `.gitignore` (уже создан) и `AGENTS.md` (уже создан).
@@ -866,7 +876,8 @@ indexing_slicing = "warn"
 2. `bytes.rs`: `Reader` со всеми чтениями через `checked_*`; `take`/`seek`/`cstr`;
    `remaining()`; `offset()`.
 3. `limits.rs`: `Limits` + `Default`; хелперы `check_sections`, `check_string`, и т.д.
-4. `hash.rs`: SHA-256, SHA-1, MD5 (тонкие обёртки; тест-векторы).
+4. `hash.rs`: SHA-256, SHA-1, MD5 (тонкие обёртки; тест-векторы) и политика
+   `HashSelection` — по умолчанию только SHA-256, все три по запросу.
 5. `entropy.rs`: Shannon entropy; скользящее окно (настраиваемый размер); возврат
    `EntropyProfile { overall, max_window, max_window_offset, windows_above_threshold }`.
 6. Тесты:
@@ -880,7 +891,11 @@ indexing_slicing = "warn"
 - [x] 100% методов Reader покрыты тестами;
 - [x] property-тест на 10k случайных входов зелёный;
 - [x] `cargo doc` без warning;
-- [x] бенчмарк энтропии на 10 МБ — есть базовое число.
+- [x] бенчмарк энтропии на 10 МБ — есть базовое число;
+- [x] бенчмарк хэшей на 10 МБ — есть базовое число и политика «SHA-256 по умолчанию»;
+- [x] safety-лимиты отделены от порогов спецификации (`spec.rs`);
+- [x] реестр кодов диагностики с проверкой формата;
+- [x] CI проверяет MSRV 1.85, 32-битную цель и `cargo-deny`.
 
 **Проверка:** `cargo test -p peaudit-core bytes entropy`.
 

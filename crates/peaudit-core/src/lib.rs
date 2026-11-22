@@ -19,7 +19,7 @@ pub mod spec;
 pub use bytes::Reader;
 pub use entropy::{EntropyProfile, shannon_entropy};
 pub use error::{DiagCode, DiagSeverity, Diagnostic, ErrorKind, ParseError};
-pub use hash::{FileHashes, hash_all};
+pub use hash::{FileHashes, HashSelection, hash_all, hash_file};
 pub use limits::Limits;
 
 /// Returns the crate version.

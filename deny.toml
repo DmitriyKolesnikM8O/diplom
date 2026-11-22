@@ -1,0 +1,40 @@
+# cargo-deny: лицензии, уязвимости и источники зависимостей.
+# Запускается в CI (job `deny`); локально — `cargo deny check`, если установлен.
+# Правило проекта: новая зависимость добавляется только с обоснованием,
+# поэтому список разрешённых лицензий держим узким и расширяем осознанно.
+
+[graph]
+targets = [
+  { triple = "x86_64-unknown-linux-gnu" },
+  { triple = "x86_64-pc-windows-msvc" },
+]
+
+[advisories]
+version = 2
+yanked = "deny"
+# Исключения добавляются только с указанием причины и срока пересмотра.
+ignore = []
+
+[licenses]
+version = 2
+confidence-threshold = 0.93
+# Список намеренно узкий: он отражает реально используемые лицензии.
+# Расширять — осознанно, вместе с обоснованием новой зависимости.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Unicode-3.0",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Крейты workspace ссылаются друг на друга по пути, без версии — это не wildcard
+# из реестра, а внутренняя зависимость.
+allow-wildcard-paths = true
+deny = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

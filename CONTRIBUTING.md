@@ -9,6 +9,11 @@ cargo xtask ci
 Команда запускает те же проверки, что и CI: `fmt --check`, `clippy -D warnings`,
 `test --workspace`, `doc`.
 
+Отдельно в CI (локально не обязательно) проверяются: MSRV 1.85, 32-битная цель
+`i686-unknown-linux-gnu` и `cargo-deny check` (лицензии, уязвимости, источники).
+Если поставил `cargo-deny` локально — прогоняй `cargo deny check` после изменения
+`Cargo.toml` или `deny.toml`.
+
 ## Правила
 
 - Ядро (`peaudit-core`) не делает I/O, не ходит в сеть и не содержит `unsafe`.

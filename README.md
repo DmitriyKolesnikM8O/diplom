@@ -51,10 +51,11 @@ cargo xtask ci
 cargo build --workspace --release
 ```
 
-Пока анализатор — заглушка, но CLI уже собирается и запускается:
+Пока анализатор — заглушка, но CLI уже собирается, считает хэши и запускается:
 
 ```powershell
 cargo run -p peaudit-cli -- .\file.exe
+cargo run -p peaudit-cli -- .\file.exe --hashes all
 ```
 
 ## Структура репозитория
