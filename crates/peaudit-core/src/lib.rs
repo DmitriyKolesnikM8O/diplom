@@ -14,13 +14,16 @@ pub mod entropy;
 pub mod error;
 pub mod hash;
 pub mod limits;
+pub mod pe;
 pub mod spec;
+pub mod testutil;
 
 pub use bytes::Reader;
 pub use entropy::{EntropyProfile, shannon_entropy};
 pub use error::{DiagCode, DiagSeverity, Diagnostic, ErrorKind, ParseError};
 pub use hash::{FileHashes, HashSelection, hash_all, hash_file};
 pub use limits::Limits;
+pub use pe::{ParseState, PeFile};
 
 /// Returns the crate version.
 ///

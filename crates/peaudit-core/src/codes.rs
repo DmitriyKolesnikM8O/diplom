@@ -26,16 +26,84 @@ pub const TRUNCATED: DiagCode = DiagCode::new("parse.truncated");
 /// A structure is well-formed but not supported by this version.
 pub const UNSUPPORTED: DiagCode = DiagCode::new("parse.unsupported");
 
+/// The file is smaller than the 64-byte DOS header.
+pub const DOS_TRUNCATED: DiagCode = DiagCode::new("dos.truncated");
+
+/// The file does not start with `MZ`.
+pub const DOS_MZ_MISSING: DiagCode = DiagCode::new("dos.mz-missing");
+
+/// `e_lfanew` points inside the DOS header instead of past it.
+pub const DOS_PE_OFFSET_TOO_SMALL: DiagCode = DiagCode::new("dos.pe-offset-too-small");
+
+/// `e_lfanew` points outside the file.
+pub const DOS_PE_OFFSET_OUT_OF_RANGE: DiagCode = DiagCode::new("dos.pe-offset-out-of-range");
+
+/// `e_lfanew` is not 4-byte aligned. Informational: some parsers accept it.
+pub const DOS_PE_OFFSET_UNALIGNED: DiagCode = DiagCode::new("dos.pe-offset-unaligned");
+
+/// The PE signature `PE\0\0` was not found at `e_lfanew`.
+pub const PE_SIGNATURE_MISSING: DiagCode = DiagCode::new("pe.signature-missing");
+
+/// The file ends inside the 4-byte PE signature.
+pub const PE_SIGNATURE_TRUNCATED: DiagCode = DiagCode::new("pe.signature-truncated");
+
+/// The 20-byte COFF header is not fully present.
+pub const COFF_TRUNCATED: DiagCode = DiagCode::new("coff.truncated");
+
+/// `NumberOfSections` is zero; the specification requires at least one section.
+pub const COFF_NO_SECTIONS: DiagCode = DiagCode::new("coff.no-sections");
+
+/// `SizeOfOptionalHeader` is zero, so the optional header is absent.
+pub const COFF_MISSING_OPTIONAL_HEADER: DiagCode = DiagCode::new("coff.missing-optional-header");
+
+/// The optional header is not fully present.
+pub const OPTIONAL_TRUNCATED: DiagCode = DiagCode::new("optional.truncated");
+
+/// The optional header magic is neither `0x10B` nor `0x20B` nor `0x107`.
+pub const OPTIONAL_BAD_MAGIC: DiagCode = DiagCode::new("optional.bad-magic");
+
+/// The optional header magic is `0x107` (ROM image), which is not modeled.
+pub const OPTIONAL_ROM_UNSUPPORTED: DiagCode = DiagCode::new("optional.rom-unsupported");
+
+/// `SizeOfOptionalHeader` is smaller than the fixed part of the header.
+pub const OPTIONAL_SIZE_MISMATCH: DiagCode = DiagCode::new("optional.size-mismatch");
+
+/// `NumberOfRvaAndSizes` exceeds the 16 directories defined by the specification.
+pub const OPTIONAL_TOO_MANY_DIRECTORIES: DiagCode = DiagCode::new("optional.too-many-directories");
+
+/// The data directory array ends before all declared entries were read.
+pub const DIRECTORIES_TRUNCATED: DiagCode = DiagCode::new("directories.truncated");
+
+/// The section table ends before all declared entries were read.
+pub const SECTIONS_TRUNCATED: DiagCode = DiagCode::new("sections.truncated");
+
 /// Every registered code, in sorted order.
 ///
 /// Used by tests and by documentation generation; parsers refer to the
 /// individual constants above.
 pub const ALL: &[DiagCode] = &[
+    COFF_MISSING_OPTIONAL_HEADER,
+    COFF_NO_SECTIONS,
+    COFF_TRUNCATED,
+    DIRECTORIES_TRUNCATED,
+    DOS_MZ_MISSING,
+    DOS_PE_OFFSET_OUT_OF_RANGE,
+    DOS_PE_OFFSET_TOO_SMALL,
+    DOS_PE_OFFSET_UNALIGNED,
+    DOS_TRUNCATED,
     LIMIT_EXCEEDED,
+    OPTIONAL_BAD_MAGIC,
+    OPTIONAL_ROM_UNSUPPORTED,
+    OPTIONAL_SIZE_MISMATCH,
+    OPTIONAL_TOO_MANY_DIRECTORIES,
+    OPTIONAL_TRUNCATED,
     INVALID_SIGNATURE,
     INVALID_VALUE,
     TRUNCATED,
     UNSUPPORTED,
+    PE_SIGNATURE_MISSING,
+    PE_SIGNATURE_TRUNCATED,
+    SECTIONS_TRUNCATED,
 ];
 
 #[cfg(test)]
