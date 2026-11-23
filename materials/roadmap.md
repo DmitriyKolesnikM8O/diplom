@@ -443,13 +443,16 @@ safety-лимита — диагностика `LimitExceeded` и пропуск
 Пороги спецификации — константы в `spec.rs`: `MAX_SECTIONS = 96`,
 `MAX_DATA_DIRECTORIES = 16`, `RESOURCE_TREE_DEPTH = 3`.
 
+Каталог директорий отдельного лимита не требует: спецификация фиксирует их
+число (16), и парсер больше не читает, поэтому массив ограничен 128 байтами
+независимо от `NumberOfRvaAndSizes`.
+
 Safety-лимиты (стартовые):
 
 ```rust
 pub struct Limits {
     pub max_file_size: u64,        // 512 MiB
     pub max_sections: usize,       // 4096 (safety; спецификация — 96)
-    pub max_directories: usize,    // 4096 (safety; спецификация — 16)
     pub max_imports: usize,        // 65536
     pub max_exports: usize,        // 65536
     pub max_resource_nodes: usize, // 65536
@@ -914,7 +917,7 @@ indexing_slicing = "warn"
 2. `pe/coff.rs`: 20 байт; `Machine`, `NumberOfSections`, `TimeDateStamp`,
    `SizeOfOptionalHeader`, `Characteristics`.
 3. `pe/optional.rs`: магия `0x10B`/`0x20B`/`0x107`; стандартные поля; поля Windows-specific;
-   `NumberOfRvaAndSizes`; data directories (8 байт каждая, ограничение 16 + лимит).
+   `NumberOfRvaAndSizes`; data directories (8 байт каждая, не более 16 — как у загрузчика).
 4. `pe/section.rs`: 40 байт; имя (8 байт, не обязательно NUL-terminated); все поля;
    вычисление абсолютного смещения заголовка.
 5. `pe/mod.rs`: `PeFile::parse` — последовательность с накоплением диагностик:
@@ -939,6 +942,16 @@ indexing_slicing = "warn"
 10 файлах. Golden-снапшоты модели PE32/PE32+ — `tests/parse_headers.rs`,
 корпусный прогон — `tests/system_corpus.rs` (`--ignored`). Замер —
 `docs/experiments/2026-11-23-pe-corpus-baseline.md`.
+
+**Граница с правилами.** По ходу фазы выяснилось, что парсер и правила легко
+начинают сообщать об одном и том же, поэтому граница зафиксирована отдельно:
+[ADR-0005](../docs/adr/0005-diagnostics-vs-findings.md) — диагностика фиксирует
+решение парсера (остановился, урезал, пропустил), а несоответствие
+спецификации без такого решения — дело правила. Следствия: усечение любой
+структуры стало уровнем `error` (иначе `complete` перестаёт быть правдой),
+диагностика `coff.no-sections` удалена в пользу правила `PE-COFF-001`, из
+реестра убраны коды-заготовки, а `Limits::max_directories` — каталог директорий
+ограничен спецификацией (16 записей), и отдельный лимит не нужен.
 
 **Проверка:** `cargo test -p peaudit-core parse_headers`.
 

@@ -14,6 +14,13 @@
 //!   completely and is still malformed; that finding belongs to a rule.
 //! - Safety limits in [`Limits`] stop work on hostile input. Exceeding one is
 //!   reported as [`codes::LIMIT_EXCEEDED`], not as a specification finding.
+//!
+//! The same line splits diagnostics from findings (ADR-0005): a diagnostic
+//! records a **decision the parser had to make** — it stopped early, clamped a
+//! count, or skipped a substructure — because the resulting model then differs
+//! from what the file declares. An anomaly that requires no decision, such as
+//! zero sections, produces no diagnostic: the model represents it faithfully
+//! (an empty vector) and a rule reports it.
 
 pub mod coff;
 pub mod dos;
@@ -105,7 +112,10 @@ pub struct PeFile {
     pub sections: Vec<SectionHeader>,
     /// File offsets of each structure.
     pub offsets: StructureOffsets,
-    /// Everything that went wrong, in the order it was found.
+    /// Parse-level problems, in the order they were found.
+    ///
+    /// Non-conformance that required no parsing decision is a finding for a
+    /// rule, not a diagnostic (ADR-0005).
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -113,8 +123,8 @@ impl PeFile {
     /// Parses `data` with the given safety limits.
     ///
     /// This function never panics and never allocates more than the limits
-    /// allow: at most `limits.max_sections` section headers and
-    /// `limits.max_directories` directory entries are stored.
+    /// allow: at most `limits.max_sections` section headers and at most
+    /// [`spec::MAX_DATA_DIRECTORIES`] directory entries are stored.
     #[must_use]
     pub fn parse(data: &[u8], limits: &Limits) -> Self {
         let mut parser = Parser {
@@ -275,18 +285,27 @@ impl Parser<'_> {
     }
 
     fn parse_pe_signature(&mut self, offset: usize) -> bool {
-        let Ok(bytes) = Reader::new(self.data).slice(offset, PE_SIGNATURE.len()) else {
+        let mut probe = match Reader::new(self.data).sub_reader(offset, PE_SIGNATURE.len()) {
+            Ok(probe) => probe,
+            Err(_) => {
+                self.report_error(
+                    codes::PE_SIGNATURE_TRUNCATED,
+                    ParseError::unexpected_eof(offset, "PE signature"),
+                );
+                return false;
+            }
+        };
+        // The sub-reader was bounded to exactly four bytes, so this read cannot
+        // fail; treating it as fallible keeps the parser free of `unwrap`.
+        let Ok(actual) = probe.read_u32() else {
             self.report_error(
                 codes::PE_SIGNATURE_TRUNCATED,
                 ParseError::unexpected_eof(offset, "PE signature"),
             );
             return false;
         };
-        if bytes != PE_SIGNATURE.as_slice() {
-            let actual = <[u8; 4]>::try_from(bytes)
-                .map(u32::from_le_bytes)
-                .unwrap_or_default();
-            let expected = u32::from_le_bytes(PE_SIGNATURE);
+        let expected = u32::from_le_bytes(PE_SIGNATURE);
+        if actual != expected {
             let error = ParseError::invalid_value(offset, "PE signature")
                 .with_values(u64::from(expected), u64::from(actual));
             self.report_error(codes::PE_SIGNATURE_MISSING, error);
@@ -300,12 +319,6 @@ impl Parser<'_> {
         match CoffHeader::parse(self.data, offset) {
             Ok(coff) => {
                 self.file.offsets.coff = Some(offset);
-                if coff.number_of_sections == 0 {
-                    self.warn(
-                        codes::COFF_NO_SECTIONS,
-                        offset.saturating_add(coff::NUMBER_OF_SECTIONS_OFFSET),
-                    );
-                }
                 if coff.size_of_optional_header == 0 {
                     self.warn(
                         codes::COFF_MISSING_OPTIONAL_HEADER,
@@ -356,6 +369,13 @@ impl Parser<'_> {
         }
     }
 
+    /// Reads the data directory array.
+    ///
+    /// At most [`spec::MAX_DATA_DIRECTORIES`] entries are read: the loader never
+    /// looks past them, so anything beyond the sixteenth entry is not part of
+    /// the model. A larger declared count is reported by
+    /// `optional.too-many-directories`, because the model then contains less
+    /// than the file declares.
     fn parse_directories(&mut self, start: usize, header: OptionalHeader) {
         let declared = header.number_of_rva_and_sizes;
         let spec_limit = spec::MAX_DATA_DIRECTORIES as u32;
@@ -370,14 +390,7 @@ impl Parser<'_> {
             );
         }
 
-        let mut count = declared.min(spec_limit) as usize;
-        let safety = self.limits.max_directories;
-        if count > safety {
-            let error = ParseError::limit_exceeded(start, "directory count")
-                .with_values(safety as u64, count as u64);
-            self.report_error(codes::LIMIT_EXCEEDED, error);
-            count = safety;
-        }
+        let count = declared.min(spec_limit) as usize;
         if count == 0 {
             return;
         }
@@ -393,11 +406,10 @@ impl Parser<'_> {
             match DataDirectory::parse(self.data, offset, index as u32) {
                 Ok(directory) => self.file.directories.push(directory),
                 Err(error) => {
-                    self.file.diagnostics.push(
-                        Diagnostic::warning(codes::DIRECTORIES_TRUNCATED)
-                            .at(error.offset())
-                            .caused_by(error),
-                    );
+                    // Truncation is an error, not a warning: the model is now
+                    // missing entries the file declares, exactly as for a
+                    // truncated section table.
+                    self.report_error(codes::DIRECTORIES_TRUNCATED, error);
                     break;
                 }
             }
@@ -451,6 +463,8 @@ impl Parser<'_> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::{ParseState, PeFile};
     use crate::DiagSeverity;
     use crate::codes;
@@ -615,12 +629,15 @@ mod tests {
     }
 
     #[test]
-    fn no_sections_is_a_warning_but_parses() {
+    fn zero_sections_is_not_a_parse_problem() {
         let mut builder = PeBuilder::pe32();
         assert!(builder.patch_u16(builder.coff_offset() + coff::NUMBER_OF_SECTIONS_OFFSET, 0));
         let file = parse(builder.bytes());
 
-        assert!(file.has_diagnostic(codes::COFF_NO_SECTIONS));
+        // Nothing was skipped, so the parser has nothing to report: the model
+        // shows an empty section table, and the conformance finding belongs to
+        // a rule (ADR-0005).
+        assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
         assert!(file.sections.is_empty());
         assert_eq!(file.state(), ParseState::Complete);
     }
@@ -707,15 +724,50 @@ mod tests {
     }
 
     #[test]
-    fn truncated_directories_are_reported() {
+    fn truncated_directories_are_reported_as_an_error() {
         let builder = PeBuilder::pe32();
         let directories_offset = builder.directories_offset();
         let mut bytes = builder.into_bytes();
         bytes.truncate(directories_offset + 24);
         let file = parse(&bytes);
 
-        assert!(file.has_diagnostic(codes::DIRECTORIES_TRUNCATED));
+        let diagnostic = file
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.code() == codes::DIRECTORIES_TRUNCATED)
+            .expect("directories.truncated");
+        assert_eq!(diagnostic.severity(), DiagSeverity::Error);
         assert_eq!(file.directories.len(), 3);
+        assert_eq!(file.state(), ParseState::Partial);
+    }
+
+    #[test]
+    fn truncated_directories_without_sections_are_not_complete() {
+        // Regression: with `DIRECTORIES_TRUNCATED` as a warning and zero
+        // declared sections, a file cut inside its own directory array used to
+        // be reported as fully parsed.
+        let mut builder = PeBuilder::pe32();
+        assert!(builder.patch_u16(builder.coff_offset() + coff::NUMBER_OF_SECTIONS_OFFSET, 0));
+        let directories_offset = builder.directories_offset();
+        let mut bytes = builder.into_bytes();
+        bytes.truncate(directories_offset + 24);
+
+        let file = parse(&bytes);
+        assert!(file.has_diagnostic(codes::DIRECTORIES_TRUNCATED));
+        assert_eq!(file.state(), ParseState::Partial);
+    }
+
+    #[test]
+    fn zero_declared_directories_are_not_read() {
+        let mut builder = PeBuilder::pe32();
+        let offset = builder.optional_offset() + optional::PE32_NUMBER_OF_RVA_AND_SIZES_OFFSET;
+        assert!(builder.patch_u32(offset, 0));
+        let file = parse(builder.bytes());
+
+        assert!(file.directories.is_empty());
+        assert_eq!(file.offsets.directories, None);
+        assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+        assert_eq!(file.state(), ParseState::Complete);
     }
 
     #[test]
@@ -744,7 +796,9 @@ mod tests {
 
     #[test]
     fn every_truncation_is_safe() {
-        let bytes = PeBuilder::pe32().into_bytes();
+        let builder = PeBuilder::pe32();
+        let section_table_end = builder.sections_offset() + section::SECTION_HEADER_SIZE;
+        let bytes = builder.into_bytes();
         let limits = Limits::default();
         for length in 0..bytes.len() {
             let Some(prefix) = bytes.get(..length) else {
@@ -754,7 +808,17 @@ mod tests {
             if length < dos::DOS_HEADER_SIZE {
                 assert_eq!(file.state(), ParseState::Failed, "length {length}");
             }
+            // Below the end of the section table the declared structures cannot
+            // all have been read, so the parse must not claim completeness.
+            if length < section_table_end {
+                assert_ne!(file.state(), ParseState::Complete, "length {length}");
+            }
         }
+        assert_eq!(
+            PeFile::parse(&bytes, &limits).state(),
+            ParseState::Complete,
+            "the untruncated image must parse completely"
+        );
     }
 
     #[test]
@@ -769,6 +833,256 @@ mod tests {
             }
             let _ = PeFile::parse(&bytes, &limits);
         }
+    }
+
+    /// Random bytes almost never reach the header chain; mutations of a valid
+    /// image do, which is what makes this test worth its runtime.
+    #[test]
+    fn mutations_of_a_valid_image_never_panic() {
+        let original = PeBuilder::pe32().into_bytes();
+        let limits = Limits::default();
+        let mut state = 0x0BAD_C0DE_1234_5678_u64;
+        for _ in 0..1000 {
+            let mut bytes = original.clone();
+            let flips = 1 + (xorshift(&mut state) % 4) as usize;
+            for _ in 0..flips {
+                let index = (xorshift(&mut state) as usize) % bytes.len();
+                let mask = 1u8 << (xorshift(&mut state) % 8);
+                if let Some(byte) = bytes.get_mut(index) {
+                    *byte ^= mask;
+                }
+            }
+            let file = PeFile::parse(&bytes, &limits);
+            let declared = file
+                .coff
+                .map_or(0, |coff| usize::from(coff.number_of_sections));
+            assert!(
+                file.sections.len() <= declared.min(limits.max_sections),
+                "more sections than declared or allowed"
+            );
+            if file.state() == ParseState::Complete {
+                assert_eq!(file.sections.len(), declared);
+            }
+        }
+    }
+
+    #[test]
+    fn file_size_limit_is_enforced_before_parsing() {
+        let limits = Limits {
+            max_file_size: 16,
+            ..Limits::default()
+        };
+        let file = PeFile::parse(PeBuilder::pe32().bytes(), &limits);
+
+        assert_eq!(file.state(), ParseState::Failed);
+        assert!(file.has_diagnostic(codes::LIMIT_EXCEEDED));
+        assert!(file.dos.is_none() && file.coff.is_none() && file.optional.is_none());
+        assert!(file.sections.is_empty() && file.directories.is_empty());
+    }
+
+    #[test]
+    fn absurd_optional_size_moves_the_section_table() {
+        let mut builder = PeBuilder::pe32();
+        assert!(builder.patch_u16(
+            builder.coff_offset() + coff::SIZE_OF_OPTIONAL_HEADER_OFFSET,
+            0x1000
+        ));
+        let file = parse(builder.bytes());
+
+        // The optional header itself is intact, so it is still modeled; the
+        // section table now sits past the end of the file.
+        assert!(file.optional.is_some());
+        assert!(file.has_diagnostic(codes::SECTIONS_TRUNCATED));
+        assert!(file.sections.is_empty());
+        assert_eq!(file.state(), ParseState::Partial);
+    }
+
+    #[test]
+    fn pe_offset_zero_is_reported_and_stops() {
+        let mut builder = PeBuilder::pe32();
+        assert!(builder.patch_u32(dos::E_LFANEW_OFFSET, 0));
+        let file = parse(builder.bytes());
+
+        assert!(file.has_diagnostic(codes::DOS_PE_OFFSET_TOO_SMALL));
+        assert!(file.has_diagnostic(codes::PE_SIGNATURE_MISSING));
+        assert_eq!(file.state(), ParseState::Failed);
+    }
+
+    #[test]
+    fn duplicate_section_names_return_the_first() {
+        let mut builder = PeBuilder::pe32();
+        let first = builder.sections_offset();
+        let second = first + section::SECTION_HEADER_SIZE;
+        let entry = builder
+            .bytes()
+            .get(first..second)
+            .expect("first section entry")
+            .to_vec();
+        assert!(builder.patch_bytes(second, &entry));
+        assert!(builder.patch_u16(builder.coff_offset() + coff::NUMBER_OF_SECTIONS_OFFSET, 2));
+
+        let file = parse(builder.bytes());
+        assert_eq!(file.sections.len(), 2);
+        assert_eq!(file.state(), ParseState::Complete);
+        let found = file.find_section(".text").expect("section .text");
+        assert_eq!(found.offset, first);
+    }
+
+    #[test]
+    fn machine_names_cover_the_supported_architectures() {
+        let mut builder = PeBuilder::pe32();
+        let cases = [
+            (coff::MACHINE_I386, Some("i386")),
+            (coff::MACHINE_AMD64, Some("amd64")),
+            (coff::MACHINE_ARMNT, Some("armnt")),
+            (coff::MACHINE_ARM64, Some("arm64")),
+            (coff::MACHINE_IA64, Some("ia64")),
+            (coff::MACHINE_EBC, Some("ebc")),
+            (coff::MACHINE_RISCV32, Some("riscv32")),
+            (coff::MACHINE_RISCV64, Some("riscv64")),
+            (coff::MACHINE_UNKNOWN, Some("unknown")),
+            (0x7777, None),
+        ];
+        for (machine, expected) in cases {
+            assert!(builder.patch_u16(builder.coff_offset(), machine));
+            let file = parse(builder.bytes());
+            let name = file.coff.expect("coff header").machine_name();
+            assert_eq!(name, expected, "machine {machine:#06x}");
+        }
+    }
+
+    /// Builds one input per registered code. The registry must not contain a
+    /// code that no parser path can emit: such a code would be a lie in the
+    /// report schema and a trap for whoever implements the matching rule.
+    fn inputs_covering_every_code() -> Vec<(Vec<u8>, Limits)> {
+        let default = Limits::default();
+        let mut cases = Vec::new();
+
+        // dos.truncated
+        cases.push((Vec::new(), default));
+        // dos.mz-missing
+        cases.push((vec![b'X'; dos::DOS_HEADER_SIZE], default));
+
+        // dos.pe-offset-too-small: signature moved into the DOS header.
+        let mut builder = PeBuilder::pe32();
+        assert!(builder.patch_bytes(0x20, &super::PE_SIGNATURE));
+        assert!(builder.patch_u32(dos::E_LFANEW_OFFSET, 0x20));
+        cases.push((builder.into_bytes(), default));
+
+        // dos.pe-offset-out-of-range
+        let mut builder = PeBuilder::pe32();
+        assert!(builder.patch_u32(dos::E_LFANEW_OFFSET, 0x00FF_FFFF));
+        cases.push((builder.into_bytes(), default));
+
+        // dos.pe-offset-unaligned
+        let builder = PeBuilder::pe32();
+        let pe_offset = builder.pe_offset();
+        let mut bytes = builder.into_bytes();
+        bytes.insert(pe_offset, 0);
+        if let Some(slot) = bytes.get_mut(dos::E_LFANEW_OFFSET..dos::E_LFANEW_OFFSET + 4) {
+            slot.copy_from_slice(&((pe_offset + 1) as u32).to_le_bytes());
+        }
+        cases.push((bytes, default));
+
+        // pe.signature-missing
+        let mut builder = PeBuilder::pe32();
+        let offset = builder.pe_offset();
+        assert!(builder.patch_bytes(offset, b"PX\0\0"));
+        cases.push((builder.into_bytes(), default));
+
+        // pe.signature-truncated
+        let builder = PeBuilder::pe32();
+        let end = builder.pe_offset() + 2;
+        let mut bytes = builder.into_bytes();
+        bytes.truncate(end);
+        cases.push((bytes, default));
+
+        // coff.truncated
+        let builder = PeBuilder::pe32();
+        let end = builder.coff_offset() + 10;
+        let mut bytes = builder.into_bytes();
+        bytes.truncate(end);
+        cases.push((bytes, default));
+
+        // coff.missing-optional-header
+        let mut builder = PeBuilder::pe32();
+        assert!(builder.patch_u16(
+            builder.coff_offset() + coff::SIZE_OF_OPTIONAL_HEADER_OFFSET,
+            0
+        ));
+        cases.push((builder.into_bytes(), default));
+
+        // optional.truncated
+        let builder = PeBuilder::pe32();
+        let end = builder.optional_offset() + 40;
+        let mut bytes = builder.into_bytes();
+        bytes.truncate(end);
+        cases.push((bytes, default));
+
+        // optional.bad-magic
+        let mut builder = PeBuilder::pe32();
+        assert!(builder.patch_u16(builder.optional_offset(), 0x0999));
+        cases.push((builder.into_bytes(), default));
+
+        // optional.rom-unsupported
+        let mut builder = PeBuilder::pe32();
+        assert!(builder.patch_u16(builder.optional_offset(), optional::ROM_MAGIC));
+        cases.push((builder.into_bytes(), default));
+
+        // optional.size-mismatch
+        let mut builder = PeBuilder::pe32();
+        assert!(builder.patch_u16(
+            builder.coff_offset() + coff::SIZE_OF_OPTIONAL_HEADER_OFFSET,
+            40
+        ));
+        cases.push((builder.into_bytes(), default));
+
+        // optional.too-many-directories
+        let mut builder = PeBuilder::pe32();
+        let offset = builder.optional_offset() + optional::PE32_NUMBER_OF_RVA_AND_SIZES_OFFSET;
+        assert!(builder.patch_u32(offset, 100));
+        cases.push((builder.into_bytes(), default));
+
+        // directories.truncated
+        let builder = PeBuilder::pe32();
+        let end = builder.directories_offset() + 24;
+        let mut bytes = builder.into_bytes();
+        bytes.truncate(end);
+        cases.push((bytes, default));
+
+        // sections.truncated
+        let builder = PeBuilder::pe32();
+        let end = builder.sections_offset() + 20;
+        let mut bytes = builder.into_bytes();
+        bytes.truncate(end);
+        cases.push((bytes, default));
+
+        // limit.exceeded
+        let small = Limits {
+            max_file_size: 16,
+            ..Limits::default()
+        };
+        cases.push((PeBuilder::pe32().into_bytes(), small));
+
+        cases
+    }
+
+    #[test]
+    fn every_registered_code_is_produced_by_some_input() {
+        let mut produced: BTreeSet<&'static str> = BTreeSet::new();
+        for (bytes, limits) in inputs_covering_every_code() {
+            let file = PeFile::parse(&bytes, &limits);
+            for diagnostic in &file.diagnostics {
+                produced.insert(diagnostic.code().as_str());
+            }
+        }
+        let registered: BTreeSet<&'static str> =
+            codes::ALL.iter().map(|code| code.as_str()).collect();
+        let missing: Vec<&str> = registered.difference(&produced).copied().collect();
+        assert!(
+            missing.is_empty(),
+            "registered codes no input can produce: {missing:?}"
+        );
     }
 
     #[test]

@@ -235,6 +235,10 @@ impl<'a> Reader<'a> {
     ///
     /// Offsets inside the returned reader are relative to the start of the
     /// range, so a caller that needs absolute offsets must add the range start.
+    /// This applies to errors too: a [`ParseError`] obtained from the
+    /// sub-reader reports a relative offset. The parsers in [`crate::pe`] avoid
+    /// the problem by bounding the whole structure with `sub_reader` first and
+    /// then reading fields that are known to be present.
     ///
     /// # Errors
     ///

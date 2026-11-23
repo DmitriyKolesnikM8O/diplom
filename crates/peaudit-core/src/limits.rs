@@ -11,6 +11,11 @@
 //! specification, but the analyzer still wants to read all 100 of them; the
 //! violation is reported by a rule, not by refusing to parse. The caps here
 //! exist only to bound work and memory on hostile input.
+//!
+//! Data directories are the one structure without a cap: the specification
+//! fixes their number at [`crate::spec::MAX_DATA_DIRECTORIES`] (16), and the
+//! parser never reads more, so the array is bounded by 128 bytes no matter what
+//! `NumberOfRvaAndSizes` claims.
 
 use crate::error::ParseError;
 
@@ -31,11 +36,6 @@ pub struct Limits {
     /// [`crate::spec::MAX_SECTIONS`]; exceeding it is a finding, not a parse
     /// failure.
     pub max_sections: usize,
-    /// Maximum number of data directories to read. Default: 4096.
-    ///
-    /// Safety cap; the specification defines
-    /// [`crate::spec::MAX_DATA_DIRECTORIES`].
-    pub max_directories: usize,
     /// Maximum number of import descriptors. Default: 65536.
     pub max_imports: usize,
     /// Maximum number of export entries. Default: 65536.
@@ -61,7 +61,6 @@ impl Default for Limits {
         Self {
             max_file_size: 512 * 1024 * 1024,
             max_sections: 4096,
-            max_directories: 4096,
             max_imports: 65536,
             max_exports: 65536,
             max_resource_nodes: 65536,
@@ -95,15 +94,6 @@ impl Limits {
     /// Returns `LimitExceeded` if `count` is too large.
     pub fn check_sections(&self, count: usize, offset: usize) -> Result<(), ParseError> {
         self.check_usize(count, self.max_sections, offset, "section count")
-    }
-
-    /// Checks a data directory count against [`Limits::max_directories`].
-    ///
-    /// # Errors
-    ///
-    /// Returns `LimitExceeded` if `count` is too large.
-    pub fn check_directories(&self, count: usize, offset: usize) -> Result<(), ParseError> {
-        self.check_usize(count, self.max_directories, offset, "directory count")
     }
 
     /// Checks an import descriptor count against [`Limits::max_imports`].
@@ -195,7 +185,6 @@ mod tests {
         let limits = Limits::default();
         assert_eq!(limits.max_file_size, 512 * 1024 * 1024);
         assert_eq!(limits.max_sections, 4096);
-        assert_eq!(limits.max_directories, 4096);
         assert_eq!(limits.max_imports, 65536);
         assert_eq!(limits.max_exports, 65536);
         assert_eq!(limits.max_resource_nodes, 65536);
@@ -209,7 +198,6 @@ mod tests {
     fn safety_caps_are_above_spec_thresholds() {
         let limits = Limits::default();
         assert!(limits.max_sections > spec::MAX_SECTIONS);
-        assert!(limits.max_directories > spec::MAX_DATA_DIRECTORIES);
         assert!(limits.max_resource_depth > spec::RESOURCE_TREE_DEPTH);
     }
 
@@ -279,13 +267,6 @@ mod tests {
     #[test]
     fn every_check_reports_its_context() {
         let limits = Limits::default();
-        assert_eq!(
-            limits
-                .check_directories(limits.max_directories + 1, 0)
-                .unwrap_err()
-                .context(),
-            "directory count"
-        );
         assert_eq!(
             limits
                 .check_imports(limits.max_imports + 1, 0)

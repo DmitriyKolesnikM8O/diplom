@@ -6,25 +6,20 @@
 //! strings at the call site, so a typo becomes a missing constant.
 //!
 //! New codes are added here together with an entry in [`ALL`]; the test in this
-//! module enforces the naming convention and rejects duplicates.
+//! module enforces the naming convention and rejects duplicates. A code in
+//! [`ALL`] must also be produced by some input — a registered code that no
+//! parser path can emit is a registry bug, not a spare slot (see the
+//! reachability test in [`crate::pe`]).
+//!
+//! The registry describes **parse-level** problems only. Non-conformance that
+//! requires no parsing decision — zero sections, a value outside the
+//! specification — is a finding for a rule, not a diagnostic (ADR-0005).
 
 use crate::error::DiagCode;
 
 /// A configured safety limit was exceeded and the affected substructure was
 /// skipped.
 pub const LIMIT_EXCEEDED: DiagCode = DiagCode::new("limit.exceeded");
-
-/// A signature does not match the expected bytes.
-pub const INVALID_SIGNATURE: DiagCode = DiagCode::new("parse.invalid-signature");
-
-/// A field holds a value outside its allowed range.
-pub const INVALID_VALUE: DiagCode = DiagCode::new("parse.invalid-value");
-
-/// A structure ended before all of its bytes were available.
-pub const TRUNCATED: DiagCode = DiagCode::new("parse.truncated");
-
-/// A structure is well-formed but not supported by this version.
-pub const UNSUPPORTED: DiagCode = DiagCode::new("parse.unsupported");
 
 /// The file is smaller than the 64-byte DOS header.
 pub const DOS_TRUNCATED: DiagCode = DiagCode::new("dos.truncated");
@@ -49,9 +44,6 @@ pub const PE_SIGNATURE_TRUNCATED: DiagCode = DiagCode::new("pe.signature-truncat
 
 /// The 20-byte COFF header is not fully present.
 pub const COFF_TRUNCATED: DiagCode = DiagCode::new("coff.truncated");
-
-/// `NumberOfSections` is zero; the specification requires at least one section.
-pub const COFF_NO_SECTIONS: DiagCode = DiagCode::new("coff.no-sections");
 
 /// `SizeOfOptionalHeader` is zero, so the optional header is absent.
 pub const COFF_MISSING_OPTIONAL_HEADER: DiagCode = DiagCode::new("coff.missing-optional-header");
@@ -83,7 +75,6 @@ pub const SECTIONS_TRUNCATED: DiagCode = DiagCode::new("sections.truncated");
 /// individual constants above.
 pub const ALL: &[DiagCode] = &[
     COFF_MISSING_OPTIONAL_HEADER,
-    COFF_NO_SECTIONS,
     COFF_TRUNCATED,
     DIRECTORIES_TRUNCATED,
     DOS_MZ_MISSING,
@@ -97,10 +88,6 @@ pub const ALL: &[DiagCode] = &[
     OPTIONAL_SIZE_MISMATCH,
     OPTIONAL_TOO_MANY_DIRECTORIES,
     OPTIONAL_TRUNCATED,
-    INVALID_SIGNATURE,
-    INVALID_VALUE,
-    TRUNCATED,
-    UNSUPPORTED,
     PE_SIGNATURE_MISSING,
     PE_SIGNATURE_TRUNCATED,
     SECTIONS_TRUNCATED,
