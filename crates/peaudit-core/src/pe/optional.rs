@@ -31,6 +31,20 @@ pub const DIRECTORY_SIZE: usize = 8;
 pub const PE32_SIZE_OF_IMAGE_OFFSET: usize = 56;
 /// Offset of `SizeOfImage` inside a `PE32+` optional header.
 pub const PE32PLUS_SIZE_OF_IMAGE_OFFSET: usize = 56;
+/// Offset of `SectionAlignment` inside either optional header layout.
+pub const SECTION_ALIGNMENT_OFFSET: usize = 32;
+/// Offset of `FileAlignment` inside either optional header layout.
+pub const FILE_ALIGNMENT_OFFSET: usize = 36;
+/// Offset of `SizeOfHeaders` inside either optional header layout.
+pub const SIZE_OF_HEADERS_OFFSET: usize = 60;
+/// Offset of `CheckSum` inside either optional header layout.
+pub const CHECKSUM_OFFSET: usize = 64;
+
+/// Index of the attribute certificate table in the data directory array.
+///
+/// Unlike every other directory, its `VirtualAddress` field holds a **file
+/// offset**, not an RVA, and its `Size` is the length of the table.
+pub const DIRECTORY_SECURITY: u32 = 4;
 /// Offset of `NumberOfRvaAndSizes` inside a `PE32` optional header.
 pub const PE32_NUMBER_OF_RVA_AND_SIZES_OFFSET: usize = 92;
 /// Offset of `NumberOfRvaAndSizes` inside a `PE32+` optional header.

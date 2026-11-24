@@ -10,6 +10,7 @@
 
 pub mod bytes;
 pub mod codes;
+pub mod derived;
 pub mod entropy;
 pub mod error;
 pub mod hash;
@@ -19,11 +20,15 @@ pub mod spec;
 pub mod testutil;
 
 pub use bytes::Reader;
+pub use derived::{Derived, HeadersSize, ImageSize, SectionEntropy};
 pub use entropy::{EntropyProfile, shannon_entropy};
 pub use error::{DiagCode, DiagSeverity, Diagnostic, ErrorKind, ParseError};
 pub use hash::{FileHashes, HashSelection, hash_all, hash_file};
 pub use limits::Limits;
-pub use pe::{ParseState, PeFile};
+pub use pe::{
+    ChecksumInfo, DataRegion, OverlayInfo, ParseState, PeFile, RvaMapping, RvaResolution,
+    RvaStrategy, compute_checksum,
+};
 
 /// Returns the crate version.
 ///

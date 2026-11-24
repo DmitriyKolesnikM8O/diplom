@@ -23,7 +23,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use peaudit_core::{DiagSeverity, Limits, ParseState, PeFile};
+use peaudit_core::{Derived, DiagSeverity, Limits, ParseState, PeFile, RvaMapping, RvaStrategy};
 
 /// Default corpus directory used when the environment variable is absent.
 const DEFAULT_CORPUS: &str = r"C:\Windows\System32";
@@ -101,6 +101,15 @@ fn system_corpus_parses_without_errors() {
     let mut states: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut codes: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut failures: Vec<String> = Vec::new();
+    let mut rva_failures: Vec<String> = Vec::new();
+    let mut header_mismatches = 0usize;
+    let mut image_mismatches = 0usize;
+    let mut checksums_set = 0usize;
+    let mut checksum_mismatches = 0usize;
+    let mut overlays = 0usize;
+    let mut certificates = 0usize;
+    let mut truncated_sections = 0usize;
+    let mut high_entropy_sections = 0usize;
     let mut total_sections = 0usize;
     let mut total_directories = 0usize;
 
@@ -119,6 +128,36 @@ fn system_corpus_parses_without_errors() {
         total_sections += file.sections.len();
         total_directories += file.directories.len();
 
+        let derived = Derived::compute(&bytes, &file);
+        if let Some(headers) = derived.headers_size {
+            if !headers.covers_headers() {
+                header_mismatches += 1;
+            }
+        }
+        if derived.image_size.and_then(|image| image.is_consistent()) == Some(false) {
+            image_mismatches += 1;
+        }
+        if derived.overlay.is_present() {
+            overlays += 1;
+        }
+        if derived.overlay.certificate.is_some() {
+            certificates += 1;
+        }
+        for entry in &derived.section_entropy {
+            if entry.truncated {
+                truncated_sections += 1;
+            }
+            if entry.is_high_entropy() {
+                high_entropy_sections += 1;
+            }
+        }
+        if derived.checksum.is_set() {
+            checksums_set += 1;
+            if derived.checksum.is_consistent() == Some(false) {
+                checksum_mismatches += 1;
+            }
+        }
+
         for diagnostic in &file.diagnostics {
             if diagnostic.severity() == DiagSeverity::Error {
                 failures.push(format!(
@@ -129,6 +168,28 @@ fn system_corpus_parses_without_errors() {
             }
             *codes.entry(diagnostic.code().as_str()).or_default() += 1;
         }
+
+        // The property the RVA model rests on: the start of a section must map
+        // to its raw pointer under every strategy, at least for real images
+        // where both sizes are non-zero.
+        for section in &file.sections {
+            if section.size_of_raw_data == 0 || section.virtual_size == 0 {
+                continue;
+            }
+            let expected = RvaMapping::FileOffset(u64::from(section.pointer_to_raw_data));
+            for strategy in [
+                RvaStrategy::Spec,
+                RvaStrategy::Loader,
+                RvaStrategy::MaxVirtualRaw,
+            ] {
+                if file.map_rva(section.virtual_address, strategy) != expected {
+                    rva_failures.push(format!(
+                        "{name}: section at VA {:#x} does not map to {expected} under {strategy}",
+                        section.virtual_address
+                    ));
+                }
+            }
+        }
     }
 
     println!("corpus: {}", directory.display());
@@ -137,6 +198,13 @@ fn system_corpus_parses_without_errors() {
         println!("  state {state}: {count}");
     }
     println!("  sections: {total_sections}, directories: {total_directories}");
+    println!("  headers not covering the table: {header_mismatches}");
+    println!("  SizeOfImage mismatches: {image_mismatches}");
+    println!("  overlays: {overlays}");
+    println!("  certificate tables: {certificates}");
+    println!("  sections with truncated raw data: {truncated_sections}");
+    println!("  sections with entropy >= 7.0 bits/byte: {high_entropy_sections}");
+    println!("  checksums set: {checksums_set}, mismatches: {checksum_mismatches}");
     if !codes.is_empty() {
         println!("diagnostics:");
         for (code, count) in &codes {
@@ -148,6 +216,27 @@ fn system_corpus_parses_without_errors() {
         failures.is_empty(),
         "error-level diagnostics on real binaries:\n{}",
         failures.join("\n")
+    );
+    assert!(
+        rva_failures.is_empty(),
+        "section starts do not map to their raw pointers:\n{}",
+        rva_failures.join("\n")
+    );
+    assert_eq!(
+        header_mismatches, 0,
+        "SizeOfHeaders does not cover the section table on real binaries"
+    );
+    assert_eq!(
+        image_mismatches, 0,
+        "SizeOfImage does not match the computed extent on real binaries"
+    );
+    assert_eq!(
+        checksum_mismatches, 0,
+        "a stored checksum does not match the computed one on real binaries"
+    );
+    assert_eq!(
+        truncated_sections, 0,
+        "a section declares more raw data than the file holds on real binaries"
     );
 
     let complete = states

@@ -23,6 +23,13 @@
 - `peaudit-core`: `testutil::PeBuilder` — минимальный валидный PE32/PE32+ с доступом к смещениям и патчами полей; используется и тестами, и `xtask`.
 - Тесты: golden-снапшоты модели PE32/PE32+ (`tests/parse_headers.rs`) и корпусный прогон по системным файлам (`tests/system_corpus.rs`, под `--ignored`).
 - Корпусная проверка: 4000 файлов из `C:\Windows\System32` — все `complete`, ни одной диагностики; замер — `docs/experiments/2026-11-23-pe-corpus-baseline.md`.
+- `peaudit-core`: `pe::rva` — перевод RVA в файловое смещение по трём моделям (`Spec`, `Loader`, `MaxVirtualRaw`) с явным `ZeroFill` и `Unmapped`; `resolve_rva` возвращает все три ответа сразу, `offset_to_rva` делает обратный перевод.
+- `peaudit-core`: `derived::Derived` — производные величины: `HeadersSize` (объявленный `SizeOfHeaders` против фактического конца таблицы секций, округления по `FileAlignment`) и `ImageSize` (объявленный `SizeOfImage` против `align_up(max(VA + VirtualSize), SectionAlignment)`). Величина, которую нельзя вычислить, — `None`, а не диагностика.
+- `peaudit-core`: `Derived::section_entropy` — энтропия каждой секции считается один раз при разборе: диапазон обрезан по файлу, мерится по присутствующим байтам, `truncated` отмечает секцию, чьи raw-данные не влезли в файл. `Derived` из-за `Vec` больше не `Copy` (остался `Clone`).
+- `peaudit-core`: `pe::overlay` — данные после образа разбиты на `leading`/`certificate`/`trailing`: подпись — не overlay, данные после подписи — overlay; каталог сертификатов обрезается по концу файла, overlay никогда не начинается внутри заголовков.
+- `peaudit-core`: `pe::checksum` — PE checksum с маскированием поля (а не пропуском слов) и прибавлением длины файла; `0` трактуется как «не задано». Векторы закреплены `MapFileAndCheckSumW` (PE32 `0x9205`, PE32+ `0x36EF`, `notepad.exe` `0x618DE`).
+- `examples/dump_headers`: печатает и производные величины — размер заголовков, образ, разбиение overlay и checksum.
+- Корпусная проверка производных величин на 1000 файлах `System32`: 0 расхождений по `SizeOfHeaders` и `SizeOfImage`, 149 встроенных подписей и ни одного overlay, 0 секций с усечёнными raw-данными, 999 заданных checksum без расхождений; замер — `docs/experiments/2026-11-24-derived-values-corpus.md`.
 
 ### Fixed
 

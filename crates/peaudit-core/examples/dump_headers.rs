@@ -9,7 +9,7 @@
 
 use std::process::ExitCode;
 
-use peaudit_core::{Limits, PeFile};
+use peaudit_core::{Derived, Limits, PeFile};
 
 fn main() -> ExitCode {
     let Some(path) = std::env::args().nth(1) else {
@@ -27,6 +27,8 @@ fn main() -> ExitCode {
     let file = PeFile::parse(&bytes, &Limits::default());
     println!("file: {path} ({} bytes)", bytes.len());
     println!("state: {}", file.state());
+
+    let derived = Derived::compute(&bytes, &file);
 
     if let Some(dos) = file.dos {
         println!("dos: e_lfanew = {:#x}", dos.pe_offset);
@@ -72,15 +74,53 @@ fn main() -> ExitCode {
     println!("sections: {}", file.sections.len());
     for (index, section) in file.sections.iter().enumerate() {
         println!(
-            "  [{index}] {:?} va = {:#x} vsize = {:#x} raw = {:#x} ptr = {:#x} flags = {:#010x}",
+            "  [{index}] {:?} va = {:#x} vsize = {:#x} raw = {:#x} ptr = {:#x} flags = {:#010x} entropy = {:.2?}",
             section.name_str().unwrap_or("<non-utf8>"),
             section.virtual_address,
             section.virtual_size,
             section.size_of_raw_data,
             section.pointer_to_raw_data,
             section.characteristics,
+            derived.section(index).map(|entry| entry.entropy),
         );
     }
+
+    if let Some(headers) = derived.headers_size {
+        println!(
+            "headers: declared = {:#x} required = {:#x} covers = {} shortfall = {:#x} aligned = {:?}",
+            headers.declared,
+            headers.required,
+            headers.covers_headers(),
+            headers.shortfall(),
+            headers.declared_is_aligned(),
+        );
+    }
+    if let Some(image) = derived.image_size {
+        println!(
+            "image: declared = {:#x} computed = {:x?} consistent = {:?}",
+            image.declared,
+            image.computed,
+            image.is_consistent(),
+        );
+    }
+    let overlay = derived.overlay;
+    if overlay.is_present() || overlay.certificate.is_some() {
+        println!(
+            "overlay: leading = {:?} certificate = {:?} trailing = {:?} total = {:#x}",
+            overlay.leading,
+            overlay.certificate,
+            overlay.trailing,
+            overlay.total_size(),
+        );
+    }
+    let checksum = derived.checksum;
+    println!(
+        "checksum: stored = {:x?} computed = {:x?} set = {} consistent = {:?}",
+        checksum.stored,
+        checksum.computed,
+        checksum.is_set(),
+        checksum.is_consistent(),
+    );
 
     if !file.diagnostics.is_empty() {
         println!("diagnostics:");

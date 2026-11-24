@@ -22,9 +22,12 @@
 //! zero sections, produces no diagnostic: the model represents it faithfully
 //! (an empty vector) and a rule reports it.
 
+pub mod checksum;
 pub mod coff;
 pub mod dos;
 pub mod optional;
+pub mod overlay;
+pub mod rva;
 pub mod section;
 
 use crate::bytes::Reader;
@@ -33,9 +36,12 @@ use crate::error::{DiagCode, DiagSeverity, Diagnostic, ErrorKind, ParseError};
 use crate::limits::Limits;
 use crate::spec;
 
+pub use checksum::{ChecksumInfo, compute_checksum};
 pub use coff::CoffHeader;
 pub use dos::DosHeader;
 pub use optional::{DataDirectory, OptionalHeader};
+pub use overlay::{DataRegion, OverlayInfo};
+pub use rva::{RvaMapping, RvaResolution, RvaStrategy};
 pub use section::SectionHeader;
 
 /// The four-byte PE signature that follows the DOS header.
@@ -170,6 +176,22 @@ impl PeFile {
         self.sections
             .iter()
             .find(|section| section.name_str() == Some(name))
+    }
+
+    /// Returns the end of the section table as the file declares it.
+    ///
+    /// Computed from the **declared** section count, not from the entries that
+    /// were read: the loader needs room for every declared entry, and a
+    /// truncated table is reported by `sections.truncated` on its own.
+    ///
+    /// Returns [`None`] when the COFF header or the table position is unknown.
+    #[must_use]
+    pub fn section_table_end(&self) -> Option<u64> {
+        let start = self.offsets.sections?;
+        let sections = self.coff?.number_of_sections;
+        Some((start as u64).saturating_add(
+            u64::from(sections).saturating_mul(section::SECTION_HEADER_SIZE as u64),
+        ))
     }
 
     /// Returns `true` if a diagnostic with `code` was recorded.
@@ -426,11 +448,14 @@ impl Parser<'_> {
             self.report_error(codes::LIMIT_EXCEEDED, error);
             count = safety;
         }
+        // The table position is a property of the headers, not of the entries:
+        // record it even when the table is empty, so derived values can tell
+        // where the header region ends.
+        self.file.offsets.sections = Some(start);
         if count == 0 {
             return;
         }
 
-        self.file.offsets.sections = Some(start);
         for index in 0..count {
             let Some(delta) = index.checked_mul(section::SECTION_HEADER_SIZE) else {
                 break;

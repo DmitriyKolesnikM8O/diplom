@@ -965,34 +965,65 @@ indexing_slicing = "warn"
 
 **Шаги.**
 
-1. `pe/rva.rs`: три стратегии маппинга:
+1. `pe/rva.rs` (сделано): три стратегии маппинга:
    - `Spec`: RVA < SizeOfHeaders → файловое смещение = RVA; иначе секция, где
      `VA ≤ RVA < VA + VirtualSize` (и проверка `SizeOfRawData`);
-   - `Loader`: то, что реально делает загрузчик (уточнить по «Lost in the Loader»
-     и экспериментам; как минимум — маппинг по `SizeOfRawData`, headers по `SizeOfHeaders`);
-   - `MaxVirtualRaw`: `max(VirtualSize, SizeOfRawData)` — как делают некоторые парсеры.
+   - `Loader`: спан `max(VirtualSize, SizeOfRawData)` — загрузчик не режет raw при
+     `VirtualSize < SizeOfRawData` (T24) и добивает нулями при обратном
+     соотношении; `VirtualSize == 0` трактуется как `SizeOfRawData` (T25);
+   - `MaxVirtualRaw`: спан `max(VirtualSize, SizeOfRawData)`, весь спан считается
+     присутствующим в файле — модель парсеров, читающих `max()` байт без проверки
+     `SizeOfRawData`.
    API: `map_rva(rva, strategy) -> RvaMapping`, где
    `RvaMapping = FileOffset(u64) | ZeroFill | Unmapped`; плюс `offset_to_rva`.
    `ZeroFill` — RVA в пределах `VirtualSize`, но за `SizeOfRawData` (BSS): в файле
    данных нет, загрузчик заполнит нулями. Это принципиально для корректных правил.
-2. `headers_size`: `SizeOfHeaders`; фактический конец таблицы секций; сравнение.
-3. `image_size`: вычисленный `align_up(last_section.VA + VirtualSize, SectionAlignment)`;
-   сравнение с `SizeOfImage`.
-4. `pe/overlay.rs`: конец последней секции по `PointerToRawData + SizeOfRawData`;
-   исключение области certificate table; `OverlayInfo { offset, size }`.
-5. `pe/checksum.rs`: алгоритм PE checksum (16-битные слова, перенос, длина файла,
-   исключение поля checksum); тест-векторы.
-6. `entropy` по секциям считается один раз и кэшируется в `Derived`.
-7. Тесты: RVA в заголовках, в секции, в хвосте `VirtualSize < RawSize`, вне образа;
-   overlay с сертификатом и без; checksum на реальном файле с ненулевой суммой.
+   Расхождение моделей возвращается явно: `resolve_rva` отдаёт все три ответа
+   (`RvaResolution`), а не выбирает одну стратегию молча.
+2. `headers_size` (сделано, `derived::HeadersSize`): `SizeOfHeaders`; конец
+   таблицы секций по **объявленному** числу записей (а не по числу прочитанных);
+   сравнение, округление по `FileAlignment`.
+3. `image_size` (сделано, `derived::ImageSize`): вычисленный
+   `align_up(max(VA + VirtualSize), SectionAlignment)` — берётся максимум по
+   таблице, чтобы переупорядочивание секций не меняло ответ; сравнение с
+   `SizeOfImage`. Без секций или при нулевом выравнивании значение — `None`, а
+   не диагностика.
+4. `pe/overlay.rs` (сделано, `OverlayInfo`): overlay — не одна пара
+   `(offset, size)`, а разбиение `leading` / `certificate` / `trailing`. Старт —
+   максимум из конца raw-данных секций, конца объявленной таблицы секций и
+   `SizeOfHeaders`: overlay не начинается внутри заголовков. Каталог
+   сертификатов — единственный, чей `VirtualAddress` является файловым
+   смещением, а не RVA; его размер обрезается по концу файла, а каталог,
+   начинающийся раньше секций, не вычитается из overlay — он перекрывает образ,
+   и это отдельная находка. Данные после подписи (T44) — overlay.
+5. `pe/checksum.rs` (сделано, `ChecksumInfo`): 16-битные little-endian слова плюс
+   длина файла; поле `CheckSum` **маскируется** (а не пропускается по индексу
+   слова), иначе у невыровненного поля в соседних словах остались бы чужие
+   байты; переносы сворачиваются, длина прибавляется после финальной свёртки;
+   `stored == 0` — «не задано», а не расхождение. Векторы от системного
+   `MapFileAndCheckSumW` (`imagehlp.dll`): PE32 `0x9205`, PE32+ `0x36EF`,
+   `notepad.exe` `0x618DE`.
+6. `entropy` по секциям (сделано, `Derived::section_entropy`): одна запись на
+   секцию — обрезанный по файлу диапазон, энтропия Шеннона по присутствующим
+   байтам (не по `VirtualSize`: нулевой хвост создаёт загрузчик) и признак
+   `truncated`, если файл короче объявленного raw. Считается при `Derived::compute`,
+   чтобы правила не сканировали файл повторно и не расходились в диапазонах.
+7. Тесты (сделано, шаги 1–6): RVA в заголовках, в секции, в хвосте
+   `VirtualSize < RawSize`, вне образа; overlay с сертификатом и без, данные до и
+   после подписи, каталог за концом файла и внутри образа; checksum на векторах
+   Windows и на реальном файле с ненулевой суммой; энтропия секции с данными,
+   нулевой, усечённой и начинающейся за концом файла; корпусный assert, что на
+   легитимных файлах raw-данные секций не усечены.
 
 **DoD.**
 
-- [ ] property: для каждой секции `map_rva(VA, Spec) == FileOffset(PointerToRawData)` (в пределах raw);
-- [ ] расхождения стратегий возвращаются явно (не «молча выбираем одну»);
-- [ ] overlay не включает certificate table;
-- [ ] checksum совпадает на эталонном файле;
-- [ ] тесты на все границы.
+- [x] property: для каждой секции `map_rva(VA, Spec) == FileOffset(PointerToRawData)` (в пределах raw);
+- [x] расхождения стратегий возвращаются явно (не «молча выбираем одну»);
+- [x] overlay не включает certificate table;
+- [x] checksum совпадает на эталонном файле — векторы Windows и 1000 файлов
+  `System32` с заданной суммой, 0 расхождений (`docs/experiments/2026-11-24-derived-values-corpus.md`);
+- [x] тесты на все границы: 205 unit-тестов, корпусный прогон на 1000 файлах без
+  расхождений.
 
 **Артефакт для ВКР:** раздел «Моделирование загрузчика и parser differential».
 
