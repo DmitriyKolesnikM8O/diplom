@@ -1035,36 +1035,55 @@ indexing_slicing = "warn"
 
 **Шаги.**
 
-1. `analysis/finding.rs`: `Severity`, `Confidence`, `Category`, `Evidence`, `Finding`.
-2. `analysis/rule.rs`: trait + `RuleMeta` + `Findings` (Vec + guard от дублей).
-3. `analysis/registry.rs`: статический список правил (`LazyLock`), порядок стабилен.
-4. `analysis/profile.rs`: `Profile { Spec, Loader, Security }`, выбор правил.
-5. `analysis/scoring.rs`: веса, confidence, `family`-кап, уровни; unit-тесты на формулы.
-6. `report/`: структуры, serde, `schema_version`, сортировка находок.
-7. Первые 12–15 правил (P0):
-   - `PE-DOS-001` e_lfanew вне файла;
-   - `PE-DOS-003` PE-сигнатура;
+1. `analysis/finding.rs` (сделано): `Severity`, `Confidence`, `Category`, `Evidence`,
+   `Finding`; severity и confidence разделены, evidence хранит поле/смещение/ожидание/факт.
+2. `analysis/rule.rs` (сделано): `trait Rule: Sync`, `RuleMeta` (Copy), `AnalysisContext`,
+   `Findings` с защитой от точных дублей и детерминированной сортировкой.
+3. `analysis/registry.rs` (сделано): `LazyLock`-список, порядок COFF → OPT → SEC,
+   тесты на уникальность ID и стабильность порядка.
+4. `analysis/profile.rs` (сделано): `Profile { Spec, Loader, Security }` и константные
+   наборы профилей для `RuleMeta`.
+5. `analysis/scoring.rs` (сделано): веса, confidence, `family`-кап 25, итог ≤ 100,
+   уровни; unit-тесты на границы уровней, кап семьи, независимость профилей.
+6. `report/` (сделано): `Report`, serde, `SCHEMA_VERSION = "1.0"`, сортировка находок
+   severity desc → id → message, метрики (headers/image/overlay/checksum/entropy),
+   лимиты; `verdicts = null`, если `ParseState::Failed` (ADR-0006).
+7. Первые 15 правил (сделано):
    - `PE-COFF-001` число секций 0/>96;
-   - `PE-COFF-002` SizeOfOptionalHeader;
    - `PE-COFF-003` Machine ↔ Magic;
-   - `PE-OPT-001` Magic;
    - `PE-OPT-002` SizeOfImage;
    - `PE-OPT-003` SizeOfHeaders;
+   - `PE-OPT-004` FileAlignment;
+   - `PE-OPT-005` SectionAlignment;
    - `PE-OPT-006` EntryPoint;
-   - `PE-OPT-007` NumberOfRvaAndSizes;
+   - `PE-OPT-008` CheckSum (ненулевой и несовпадающий);
+   - `PE-OPT-013` SizeOfHeaders больше файла;
    - `PE-SEC-001` raw вне файла;
+   - `PE-SEC-002` VirtualSize = 0 при данных;
    - `PE-SEC-005` пересечение виртуальных диапазонов;
-   - `PE-SEC-007` W+X.
-8. Snapshot полного отчёта на «грязной» фикстуре.
-9. `docs/report-schema.md` + `docs/report.schema.json` (пока вручную; генерация — позже).
+   - `PE-SEC-007` W+X;
+   - `PE-SEC-012` raw внутри заголовков;
+   - `PE-SEC-013` хвостовые пустые секции.
+
+   Из первоначального списка **не реализованы как правила** `PE-DOS-001`,
+   `PE-DOS-003`, `PE-COFF-002`, `PE-OPT-001`, `PE-OPT-007`: их условия уже
+   сообщает парсер диагностиками (`dos.pe-offset-out-of-range`,
+   `pe.signature-missing`, `optional.size-mismatch`, `optional.bad-magic`,
+   `optional.too-many-directories`), а правило-дубль запрещено ADR-0005.
+8. Snapshot полного отчёта на «грязной» фикстуре (сделано): `tests/report_schema.rs`
+   проверяет точный порядок находок, детерминизм JSON и три вердикта.
+9. `docs/report-schema.md` + `docs/report.schema.json` (сделано, вручную); тест
+   валидирует реальный отчёт мини-валидатором и отдельно проверяет, что валидатор
+   отвергает сломанный документ.
 
 **DoD.**
 
-- [ ] `analyze()` на чистом PE даёт 0 находок;
-- [ ] на каждой сломанной фикстуре — ожидаемое правило;
-- [ ] JSON валиден по схеме (тест);
-- [ ] скоринг воспроизводим (golden-тест);
-- [ ] нет `unwrap`/`expect` в новых модулях.
+- [x] `analyze()` на чистом PE даёт 0 находок;
+- [x] на каждой сломанной фикстуре — ожидаемое правило (по два теста на правило);
+- [x] JSON валиден по схеме (тест);
+- [x] скоринг воспроизводим (unit-тесты формул + golden-тест отчёта);
+- [x] нет `unwrap`/`expect` в новых модулях;
+- [x] 0 находок на 1000 файлах `System32` (корпусный тест).
 
 **Артефакт для ВКР:** глава 2 (архитектура, правило, скоринг), пример отчёта.
 
