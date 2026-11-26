@@ -1,0 +1,288 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/DmitriyKolesnikM8O/diplom/docs/report.schema.json",
+  "title": "peaudit report",
+  "description": "Machine-readable analysis report, schema version 1.0. The same input bytes and options produce a byte-identical document: there are no timestamps and no unordered collections.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "tool",
+    "file",
+    "parse",
+    "verdicts",
+    "findings",
+    "metrics",
+    "limits"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": ["1.0"]
+    },
+    "tool": { "$ref": "#/definitions/tool" },
+    "file": { "$ref": "#/definitions/file" },
+    "parse": { "$ref": "#/definitions/parse" },
+    "verdicts": {
+      "anyOf": [
+        { "type": "null" },
+        { "$ref": "#/definitions/verdicts" }
+      ]
+    },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/finding" }
+    },
+    "metrics": { "$ref": "#/definitions/metrics" },
+    "limits": { "$ref": "#/definitions/limits" }
+  },
+  "definitions": {
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" }
+      }
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["size"],
+      "properties": {
+        "path": { "type": "string" },
+        "size": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string" },
+        "sha1": { "type": "string" },
+        "md5": { "type": "string" }
+      }
+    },
+    "parse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "diagnostics"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["failed", "partial", "complete"]
+        },
+        "format": {
+          "type": "string",
+          "enum": ["pe32", "pe32+"]
+        },
+        "machine": { "type": "string" },
+        "diagnostics": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/diagnostic" }
+        }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity"],
+      "properties": {
+        "code": { "type": "string" },
+        "severity": {
+          "type": "string",
+          "enum": ["info", "warning", "error"]
+        },
+        "offset": { "type": "integer", "minimum": 0 },
+        "context": { "type": "string" }
+      }
+    },
+    "verdicts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["spec", "loader", "security"],
+      "properties": {
+        "spec": { "$ref": "#/definitions/verdict" },
+        "loader": { "$ref": "#/definitions/verdict" },
+        "security": { "$ref": "#/definitions/verdict" }
+      }
+    },
+    "verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["score", "level"],
+      "properties": {
+        "score": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "level": {
+          "type": "string",
+          "enum": ["clean", "notice", "low", "suspicious", "high", "critical"]
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "severity",
+        "confidence",
+        "category",
+        "profiles",
+        "message",
+        "evidence",
+        "references"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "severity": {
+          "type": "string",
+          "enum": ["info", "low", "medium", "high", "critical"]
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["low", "medium", "high"]
+        },
+        "category": {
+          "type": "string",
+          "enum": ["dos", "coff", "optional", "section"]
+        },
+        "profiles": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "enum": ["spec", "loader", "security"]
+          }
+        },
+        "message": { "type": "string" },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/evidence" }
+        },
+        "references": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field"],
+      "properties": {
+        "field": { "type": "string" },
+        "offset": { "type": "integer", "minimum": 0 },
+        "expected": { "type": "string" },
+        "actual": { "type": "string" }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["headers", "image", "overlay", "checksum", "entropy"],
+      "properties": {
+        "headers": { "$ref": "#/definitions/headers" },
+        "image": { "$ref": "#/definitions/image" },
+        "overlay": { "$ref": "#/definitions/overlay" },
+        "checksum": { "$ref": "#/definitions/checksum" },
+        "entropy": { "$ref": "#/definitions/entropy" }
+      }
+    },
+    "headers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["declared", "required"],
+      "properties": {
+        "declared": { "type": ["integer", "null"], "minimum": 0 },
+        "required": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["declared", "computed"],
+      "properties": {
+        "declared": { "type": ["integer", "null"], "minimum": 0 },
+        "computed": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "overlay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["leading", "certificate", "trailing"],
+      "properties": {
+        "leading": { "$ref": "#/definitions/region" },
+        "certificate": { "$ref": "#/definitions/region" },
+        "trailing": { "$ref": "#/definitions/region" }
+      }
+    },
+    "region": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["offset", "size"],
+      "properties": {
+        "offset": { "type": ["integer", "null"], "minimum": 0 },
+        "size": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "checksum": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stored", "computed", "consistent"],
+      "properties": {
+        "stored": { "type": ["integer", "null"], "minimum": 0 },
+        "computed": { "type": ["integer", "null"], "minimum": 0 },
+        "consistent": { "type": ["boolean", "null"] }
+      }
+    },
+    "entropy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "sections"],
+      "properties": {
+        "file": { "type": "number", "minimum": 0, "maximum": 8 },
+        "sections": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/section_entropy" }
+        }
+      }
+    },
+    "section_entropy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index", "offset", "size", "entropy", "truncated", "high"],
+      "properties": {
+        "index": { "type": "integer", "minimum": 0 },
+        "name": { "type": "string" },
+        "offset": { "type": "integer", "minimum": 0 },
+        "size": { "type": "integer", "minimum": 0 },
+        "entropy": { "type": "number", "minimum": 0, "maximum": 8 },
+        "truncated": { "type": "boolean" },
+        "high": { "type": "boolean" }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_file_size",
+        "max_sections",
+        "max_imports",
+        "max_exports",
+        "max_resource_nodes",
+        "max_resource_depth",
+        "max_string_len",
+        "max_thunks_per_import",
+        "max_entropy_window"
+      ],
+      "properties": {
+        "max_file_size": { "type": "integer", "minimum": 0 },
+        "max_sections": { "type": "integer", "minimum": 0 },
+        "max_imports": { "type": "integer", "minimum": 0 },
+        "max_exports": { "type": "integer", "minimum": 0 },
+        "max_resource_nodes": { "type": "integer", "minimum": 0 },
+        "max_resource_depth": { "type": "integer", "minimum": 0 },
+        "max_string_len": { "type": "integer", "minimum": 0 },
+        "max_thunks_per_import": { "type": "integer", "minimum": 0 },
+        "max_entropy_window": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

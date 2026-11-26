@@ -31,6 +31,10 @@ pub const DIRECTORY_SIZE: usize = 8;
 pub const PE32_SIZE_OF_IMAGE_OFFSET: usize = 56;
 /// Offset of `SizeOfImage` inside a `PE32+` optional header.
 pub const PE32PLUS_SIZE_OF_IMAGE_OFFSET: usize = 56;
+/// Offset of `SizeOfImage` inside either optional header layout.
+pub const SIZE_OF_IMAGE_OFFSET: usize = 56;
+/// Offset of `AddressOfEntryPoint` inside either optional header layout.
+pub const ADDRESS_OF_ENTRY_POINT_OFFSET: usize = 16;
 /// Offset of `SectionAlignment` inside either optional header layout.
 pub const SECTION_ALIGNMENT_OFFSET: usize = 32;
 /// Offset of `FileAlignment` inside either optional header layout.

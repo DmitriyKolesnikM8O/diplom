@@ -20,6 +20,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     match args.next().as_deref() {
         Some("ci") => ci(),
+        Some("rules-doc") => rules_doc(),
         Some("help") | None => {
             print_help();
             Ok(())
@@ -44,6 +45,14 @@ fn ci() -> Result<(), Box<dyn std::error::Error>> {
         "RUSTDOCFLAGS",
         "-D warnings",
     )?;
+    Ok(())
+}
+
+fn rules_doc() -> Result<(), Box<dyn std::error::Error>> {
+    let path = "docs/rules.md";
+    let text = peaudit_core::analysis::rules::markdown();
+    std::fs::write(path, text)?;
+    println!("wrote {path}");
     Ok(())
 }
 
@@ -73,8 +82,9 @@ fn print_help() {
 Usage: cargo xtask <task>
 
 Tasks:
-  ci      Run the same checks as CI (fmt, clippy, test, doc)
-  help    Show this help
+  ci          Run the same checks as CI (fmt, clippy, test, doc)
+  rules-doc   Regenerate docs/rules.md from RuleMeta
+  help        Show this help
 "
     );
 }

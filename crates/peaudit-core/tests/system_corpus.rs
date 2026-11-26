@@ -23,6 +23,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use peaudit_core::analysis::registry;
+use peaudit_core::analysis::rule::{AnalysisContext, Findings};
 use peaudit_core::{Derived, DiagSeverity, Limits, ParseState, PeFile, RvaMapping, RvaStrategy};
 
 /// Default corpus directory used when the environment variable is absent.
@@ -112,6 +114,9 @@ fn system_corpus_parses_without_errors() {
     let mut high_entropy_sections = 0usize;
     let mut total_sections = 0usize;
     let mut total_directories = 0usize;
+    let mut findings_total = 0usize;
+    let mut finding_ids: BTreeMap<&'static str, usize> = BTreeMap::new();
+    let mut finding_examples: Vec<String> = Vec::new();
 
     for path in &files {
         let name = path.file_name().map_or_else(
@@ -155,6 +160,23 @@ fn system_corpus_parses_without_errors() {
             checksums_set += 1;
             if derived.checksum.is_consistent() == Some(false) {
                 checksum_mismatches += 1;
+            }
+        }
+
+        let context = AnalysisContext {
+            data: &bytes,
+            file: &file,
+            derived: &derived,
+        };
+        let mut collected = Findings::new();
+        for rule in registry::rules() {
+            rule.evaluate(&context, &mut collected);
+        }
+        findings_total += collected.len();
+        for finding in collected.as_slice() {
+            *finding_ids.entry(finding.id).or_default() += 1;
+            if finding_examples.len() < 20 {
+                finding_examples.push(format!("{name}: {} — {}", finding.id, finding.message));
             }
         }
 
@@ -205,6 +227,13 @@ fn system_corpus_parses_without_errors() {
     println!("  sections with truncated raw data: {truncated_sections}");
     println!("  sections with entropy >= 7.0 bits/byte: {high_entropy_sections}");
     println!("  checksums set: {checksums_set}, mismatches: {checksum_mismatches}");
+    println!("  findings: {findings_total}");
+    for (id, count) in &finding_ids {
+        println!("  {id}: {count}");
+    }
+    for example in &finding_examples {
+        println!("    {example}");
+    }
     if !codes.is_empty() {
         println!("diagnostics:");
         for (code, count) in &codes {
@@ -237,6 +266,12 @@ fn system_corpus_parses_without_errors() {
     assert_eq!(
         truncated_sections, 0,
         "a section declares more raw data than the file holds on real binaries"
+    );
+    assert_eq!(
+        findings_total,
+        0,
+        "rules fire on real binaries; every hit is a false positive until proven otherwise:\n{}",
+        finding_examples.join("\n")
     );
 
     let complete = states

@@ -13,3 +13,4 @@ description = "Repository automation tasks for peaudit"
 workspace = true
 
 [dependencies]
+peaudit-core = { path = "../crates/peaudit-core" }

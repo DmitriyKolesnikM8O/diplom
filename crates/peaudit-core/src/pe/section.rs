@@ -14,6 +14,17 @@ pub const SECTION_HEADER_SIZE: usize = 40;
 /// Number of bytes reserved for the section name.
 pub const SECTION_NAME_LEN: usize = 8;
 
+/// Offset of `VirtualSize` inside a section table entry.
+pub const VIRTUAL_SIZE_OFFSET: usize = 8;
+/// Offset of `VirtualAddress` inside a section table entry.
+pub const VIRTUAL_ADDRESS_OFFSET: usize = 12;
+/// Offset of `SizeOfRawData` inside a section table entry.
+pub const SIZE_OF_RAW_DATA_OFFSET: usize = 16;
+/// Offset of `PointerToRawData` inside a section table entry.
+pub const POINTER_TO_RAW_DATA_OFFSET: usize = 20;
+/// Offset of `Characteristics` inside a section table entry.
+pub const CHARACTERISTICS_OFFSET: usize = 36;
+
 /// `IMAGE_SCN_CNT_CODE`: the section contains executable code.
 pub const SCN_CNT_CODE: u32 = 0x0000_0020;
 /// `IMAGE_SCN_CNT_INITIALIZED_DATA`: the section contains initialized data.

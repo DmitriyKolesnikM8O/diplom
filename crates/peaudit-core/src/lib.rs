@@ -8,6 +8,7 @@
 #![deny(missing_docs)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+pub mod analysis;
 pub mod bytes;
 pub mod codes;
 pub mod derived;
@@ -16,9 +17,11 @@ pub mod error;
 pub mod hash;
 pub mod limits;
 pub mod pe;
+pub mod report;
 pub mod spec;
 pub mod testutil;
 
+pub use analysis::{AnalysisOptions, analyze, analyze_with};
 pub use bytes::Reader;
 pub use derived::{Derived, HeadersSize, ImageSize, SectionEntropy};
 pub use entropy::{EntropyProfile, shannon_entropy};
@@ -29,6 +32,7 @@ pub use pe::{
     ChecksumInfo, DataRegion, OverlayInfo, ParseState, PeFile, RvaMapping, RvaResolution,
     RvaStrategy, compute_checksum,
 };
+pub use report::{Report, SCHEMA_VERSION};
 
 /// Returns the crate version.
 ///

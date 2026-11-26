@@ -88,6 +88,22 @@ impl FileHashes {
     }
 }
 
+/// Formats a byte string as lowercase hexadecimal.
+///
+/// Used for digests in reports: the JSON form of a hash is a single string, not
+/// an array of decimal bytes.
+#[must_use]
+pub fn hex_digest(bytes: &[u8]) -> String {
+    use core::fmt::Write as _;
+
+    let mut out = String::with_capacity(bytes.len().saturating_mul(2));
+    for byte in bytes {
+        // Writing into a `String` cannot fail.
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
+}
+
 /// Computes the SHA-256 digest of `data`.
 #[must_use]
 pub fn sha256(data: &[u8]) -> [u8; 32] {

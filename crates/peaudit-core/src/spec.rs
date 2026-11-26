@@ -24,3 +24,14 @@ pub const MAX_DATA_DIRECTORIES: usize = 16;
 
 /// Resource tree depth defined by the PE specification: type, name, language.
 pub const RESOURCE_TREE_DEPTH: u8 = 3;
+
+/// Minimum `FileAlignment` for an image that is not low-alignment.
+pub const MIN_FILE_ALIGNMENT: u32 = 0x200;
+
+/// Maximum `FileAlignment` allowed by the specification.
+pub const MAX_FILE_ALIGNMENT: u32 = 0x1_0000;
+
+/// The page size: an image whose `SectionAlignment` is below it is a
+/// low-alignment image, where `FileAlignment` may equal `SectionAlignment` and
+/// be smaller than [`MIN_FILE_ALIGNMENT`].
+pub const PAGE_ALIGNMENT: u32 = 0x1000;

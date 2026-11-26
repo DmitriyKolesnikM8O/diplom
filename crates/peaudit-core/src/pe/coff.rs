@@ -17,6 +17,9 @@ pub const NUMBER_OF_SECTIONS_OFFSET: usize = 2;
 /// Offset of `SizeOfOptionalHeader` inside the COFF header.
 pub const SIZE_OF_OPTIONAL_HEADER_OFFSET: usize = 16;
 
+/// Offset of `Characteristics` inside the COFF header.
+pub const CHARACTERISTICS_OFFSET: usize = 18;
+
 /// The target machine is unknown.
 pub const MACHINE_UNKNOWN: u16 = 0x0000;
 /// Intel 386 or later, x86.
