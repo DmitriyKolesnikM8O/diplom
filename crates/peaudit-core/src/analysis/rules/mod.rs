@@ -14,9 +14,22 @@ pub mod optional;
 pub mod section;
 
 use crate::analysis::registry;
+use crate::pe::SectionHeader;
 
 /// The normative description of the PE format.
 pub const PE_SPEC: &str = "https://learn.microsoft.com/windows/win32/debug/pe-format";
+
+/// Returns the virtual span a section occupies once mapped.
+///
+/// The loader maps `max(VirtualSize, SizeOfRawData)` bytes, so an RVA in the
+/// raw-only tail is still reachable even when `VirtualSize` is smaller. Rules
+/// that judge reachability or overlap must use this span, not `VirtualSize`
+/// alone, or they would contradict [`crate::pe::RvaStrategy::Loader`].
+pub(crate) fn mapped_span(section: &SectionHeader) -> (u64, u64) {
+    let start = u64::from(section.virtual_address);
+    let size = u64::from(section.virtual_size.max(section.size_of_raw_data));
+    (start, start.saturating_add(size))
+}
 
 /// Renders `docs/rules.md`.
 ///

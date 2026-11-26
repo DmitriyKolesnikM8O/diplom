@@ -11,7 +11,7 @@ use crate::analysis::profile::{SECURITY_ONLY, SPEC_LOADER_SECURITY, SPEC_SECURIT
 use crate::analysis::rule::{AnalysisContext, Findings, Rule, RuleMeta, field};
 use crate::pe::{SectionHeader, section};
 
-use super::PE_SPEC;
+use super::{PE_SPEC, mapped_span};
 
 /// Returns the file offset of a field inside a section table entry.
 fn entry_offset(ctx: &AnalysisContext<'_>, index: usize, field_offset: usize) -> Option<u64> {
@@ -21,13 +21,6 @@ fn entry_offset(ctx: &AnalysisContext<'_>, index: usize, field_offset: usize) ->
         .and_then(|base| base.checked_add(index.checked_mul(section::SECTION_HEADER_SIZE)?))
         .and_then(|entry| entry.checked_add(field_offset))
         .map(|offset| offset as u64)
-}
-
-/// Returns the virtual span a section occupies once mapped.
-fn mapped_span(section: &SectionHeader) -> (u64, u64) {
-    let start = u64::from(section.virtual_address);
-    let size = u64::from(section.virtual_size.max(section.size_of_raw_data));
-    (start, start.saturating_add(size))
 }
 
 /// Returns the section name, or a placeholder for a non-UTF-8 name.
@@ -81,16 +74,17 @@ impl Rule for RawBeyondFile {
             out.push(
                 Self::META
                     .finding(format!(
-                        "Секция {} объявляет {size:#x} байт с {pointer:#x}, а в файле есть \
-                         только {available:#x}",
+                        "Секция #{index} {} объявляет {size:#x} байт с {pointer:#x}, а в файле \
+                         есть только {available:#x}",
                         name(section)
                     ))
                     .with_evidence(
                         field("sections[].pointerToRawData")
-                            .at(
-                                entry_offset(ctx, index, section::POINTER_TO_RAW_DATA_OFFSET)
-                                    .unwrap_or_default(),
-                            )
+                            .at_opt(entry_offset(
+                                ctx,
+                                index,
+                                section::POINTER_TO_RAW_DATA_OFFSET,
+                            ))
                             .expected(format!("pointer + size <= {file_size:#x}"))
                             .actual(format!("{pointer:#x} + {size:#x} = {end:#x}")),
                     ),
@@ -134,14 +128,13 @@ impl Rule for EmptyVirtualSize {
             out.push(
                 Self::META
                     .finding(format!(
-                        "Секция {} имеет VirtualSize = 0 при SizeOfRawData = {:#x}",
+                        "Секция #{index} {} имеет VirtualSize = 0 при SizeOfRawData = {:#x}",
                         name(section),
                         section.size_of_raw_data
                     ))
                     .with_evidence(
                         field("sections[].virtualSize")
-                            .at(entry_offset(ctx, index, section::VIRTUAL_SIZE_OFFSET)
-                                .unwrap_or_default())
+                            .at_opt(entry_offset(ctx, index, section::VIRTUAL_SIZE_OFFSET))
                             .expected("ненулевой размер при наличии данных")
                             .actual("0"),
                     ),
@@ -183,7 +176,14 @@ impl Rule for VirtualOverlap {
                 continue;
             }
 
-            for second in ctx.file.sections.iter().skip(index.saturating_add(1)) {
+            for (offset, second) in ctx
+                .file
+                .sections
+                .iter()
+                .skip(index.saturating_add(1))
+                .enumerate()
+            {
+                let second_index = index.saturating_add(1).saturating_add(offset);
                 let (second_start, second_end) = mapped_span(second);
                 if second_start == second_end {
                     continue;
@@ -198,8 +198,9 @@ impl Rule for VirtualOverlap {
                 out.push(
                     Self::META
                         .finding(format!(
-                            "Секции {} ({first_start:#x}..{first_end:#x}) и {} \
-                             ({second_start:#x}..{second_end:#x}) пересекаются на {:#x} байт",
+                            "Секции #{index} {} ({first_start:#x}..{first_end:#x}) и \
+                             #{second_index} {} ({second_start:#x}..{second_end:#x}) \
+                             пересекаются на {:#x} байт",
                             name(first),
                             name(second),
                             end.saturating_sub(start)
@@ -253,13 +254,12 @@ impl Rule for WritableExecutable {
             out.push(
                 Self::META
                     .finding(format!(
-                        "Секция {} имеет права на запись и исполнение одновременно",
+                        "Секция #{index} {} имеет права на запись и исполнение одновременно",
                         name(section)
                     ))
                     .with_evidence(
                         field("sections[].characteristics")
-                            .at(entry_offset(ctx, index, section::CHARACTERISTICS_OFFSET)
-                                .unwrap_or_default())
+                            .at_opt(entry_offset(ctx, index, section::CHARACTERISTICS_OFFSET))
                             .expected("MEM_WRITE и MEM_EXECUTE не вместе")
                             .actual(format!("{:#010x}", section.characteristics)),
                     ),
@@ -302,6 +302,13 @@ impl Rule for RawInsideHeaders {
         if headers_end == 0 {
             return;
         }
+        // When the declared boundary is already past the end of the file, the
+        // root cause is `SizeOfHeaders` itself and `PE-OPT-013` reports it.
+        // Comparing section pointers against a region that does not exist would
+        // add one finding per section without telling anything new.
+        if headers_end > ctx.data.len() as u64 {
+            return;
+        }
 
         for (index, section) in ctx.file.sections.iter().enumerate() {
             if section.size_of_raw_data == 0 {
@@ -315,16 +322,17 @@ impl Rule for RawInsideHeaders {
             out.push(
                 Self::META
                     .finding(format!(
-                        "Секция {} начинается с {pointer:#x}, внутри заголовков \
+                        "Секция #{index} {} начинается с {pointer:#x}, внутри заголовков \
                          (SizeOfHeaders = {headers_end:#x})",
                         name(section)
                     ))
                     .with_evidence(
                         field("sections[].pointerToRawData")
-                            .at(
-                                entry_offset(ctx, index, section::POINTER_TO_RAW_DATA_OFFSET)
-                                    .unwrap_or_default(),
-                            )
+                            .at_opt(entry_offset(
+                                ctx,
+                                index,
+                                section::POINTER_TO_RAW_DATA_OFFSET,
+                            ))
                             .expected(format!(">= {headers_end:#x}"))
                             .actual(format!("{pointer:#x}")),
                     ),
@@ -520,6 +528,27 @@ mod tests {
     }
 
     #[test]
+    fn sections_with_the_same_name_are_reported_separately() {
+        let mut builder = PeBuilder::pe32();
+        assert!(builder.patch_u16(
+            builder.coff_offset() + crate::pe::coff::NUMBER_OF_SECTIONS_OFFSET,
+            2
+        ));
+
+        let flags = section::SCN_MEM_EXECUTE | section::SCN_MEM_WRITE | section::SCN_CNT_CODE;
+        for (index, address) in [(0usize, 0x1000u32), (1, 0x2000)] {
+            let entry = builder.sections_offset() + index * section::SECTION_HEADER_SIZE;
+            // Two sections with the same name are a concealment trick; the
+            // report must not collapse them into one finding.
+            assert!(builder.patch_bytes(entry, b".text\0\0\0"));
+            write_section(&mut builder, index, [0x1000, address, 0x200, 0x200, flags]);
+        }
+
+        let findings = test_support::run(&WritableExecutable, &builder);
+        assert_eq!(findings.len(), 2);
+    }
+
+    #[test]
     fn raw_data_after_the_headers_is_accepted() {
         let findings = test_support::run(&RawInsideHeaders, &PeBuilder::pe32());
         assert!(findings.is_empty());
@@ -536,6 +565,22 @@ mod tests {
 
         let findings = test_support::run(&RawInsideHeaders, &builder);
         assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn a_headers_boundary_beyond_the_file_is_left_to_the_size_rule() {
+        let mut builder = PeBuilder::pe32();
+        write_section(&mut builder, 0, [0x1000, 0x1000, 0x200, 0x200, 0x6000_0020]);
+        // `SizeOfHeaders` covers the whole file and more: the root cause is
+        // reported by `PE-OPT-013`, so this rule must stay silent instead of
+        // flagging every section as "inside the headers".
+        assert!(builder.patch_u32(
+            builder.optional_offset() + optional::SIZE_OF_HEADERS_OFFSET,
+            0x10000
+        ));
+
+        let findings = test_support::run(&RawInsideHeaders, &builder);
+        assert!(findings.is_empty());
     }
 
     #[test]

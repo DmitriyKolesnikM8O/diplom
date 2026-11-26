@@ -11,7 +11,7 @@ use crate::analysis::rule::{AnalysisContext, Findings, Rule, RuleMeta, field};
 use crate::pe::optional;
 use crate::spec;
 
-use super::PE_SPEC;
+use super::{PE_SPEC, mapped_span};
 
 /// `PE-OPT-002`: `SizeOfImage` is not the aligned end of the last section.
 pub struct ImageSize;
@@ -291,16 +291,6 @@ impl EntryPoint {
         references: &[PE_SPEC, "materials/rules_catalog.md"],
         since: "0.1.0",
     };
-}
-
-/// Returns the virtual span a section occupies once mapped.
-///
-/// The loader maps `max(VirtualSize, SizeOfRawData)` bytes, so an entry point in
-/// the raw-only tail is still reachable (ADR: loader strategy in `pe::rva`).
-fn mapped_span(section: &crate::pe::SectionHeader) -> (u64, u64) {
-    let start = u64::from(section.virtual_address);
-    let size = u64::from(section.virtual_size.max(section.size_of_raw_data));
-    (start, start.saturating_add(size))
 }
 
 impl Rule for EntryPoint {

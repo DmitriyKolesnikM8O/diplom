@@ -58,6 +58,8 @@ mod tests {
             assert!(!meta.description.is_empty(), "{}", meta.id);
             assert!(!meta.profiles.is_empty(), "{}", meta.id);
             assert!(!meta.references.is_empty(), "{}", meta.id);
+            assert!(!meta.family.is_empty(), "{}", meta.id);
+            assert!(!meta.since.is_empty(), "{}", meta.id);
         }
     }
 

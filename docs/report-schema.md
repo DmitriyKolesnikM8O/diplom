@@ -28,13 +28,17 @@
 
 ## 2. Пример
 
+Фрагмент реального отчёта для «грязной» фикстуры из `tests/report_schema.rs`
+(показана одна находка из пяти; `references` сокращены до спецификации).
+Значения можно перепроверить: это вывод `analyze`, а не иллюстрация.
+
 ```json
 {
   "schema_version": "1.0",
   "tool": { "name": "peaudit", "version": "0.1.0" },
   "file": {
     "size": 1024,
-    "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+    "sha256": "2b3d9cf377f806b38a29204da6a83ab1aa333f2d5a70769256a1e50dabf340b0"
   },
   "parse": {
     "status": "complete",
@@ -55,12 +59,12 @@
       "confidence": "high",
       "category": "optional",
       "profiles": ["spec", "loader"],
-      "message": "SizeOfHeaders = 0x100 меньше конца таблицы секций (0x1a0) и не кратно FileAlignment (0x200)",
+      "message": "SizeOfHeaders = 0x100 меньше конца таблицы секций (0x160) и не кратно FileAlignment (0x200)",
       "evidence": [
         {
           "field": "optional.sizeOfHeaders",
-          "offset": 220,
-          "expected": ">= 0x1a0 и кратно 0x200",
+          "offset": 148,
+          "expected": ">= 0x160 и кратно 0x200",
           "actual": "0x100"
         }
       ],
@@ -68,23 +72,23 @@
     }
   ],
   "metrics": {
-    "headers": { "declared": 256, "required": 416 },
+    "headers": { "declared": 256, "required": 352 },
     "image": { "declared": 4096, "computed": 8192 },
     "overlay": {
-      "leading": { "offset": null, "size": 0 },
+      "leading": { "offset": 640, "size": 384 },
       "certificate": { "offset": null, "size": 0 },
       "trailing": { "offset": null, "size": 0 }
     },
-    "checksum": { "stored": 4660, "computed": 5678, "consistent": false },
+    "checksum": { "stored": 4660, "computed": 48997, "consistent": false },
     "entropy": {
-      "file": 1.2345,
+      "file": 0.4559,
       "sections": [
         {
           "index": 0,
           "name": ".text",
-          "offset": 512,
+          "offset": 128,
           "size": 512,
-          "entropy": 0.0,
+          "entropy": 0.4473,
           "truncated": false,
           "high": false
         }
@@ -175,6 +179,11 @@
 
 Отсутствующая область overlay представлена объектом с `offset: null` и
 `size: 0`: форма не меняется, потребителю не нужен особый случай.
+
+`checksum.consistent` — это буквальное сравнение `stored == computed`. Поэтому
+при `stored: 0` (поле не заполнено) оно равно `false`, хотя правило `PE-OPT-008`
+такой файл не отмечает: `0` означает «не задано», а не «не совпало». Потребитель,
+которому нужен именно вердикт, должен смотреть на находки, а не на это поле.
 
 ## 4. Валидация
 

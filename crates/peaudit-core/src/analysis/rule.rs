@@ -101,7 +101,9 @@ pub trait Rule: Sync {
 /// The collection rejects exact duplicates: a rule that walks a table must not
 /// report the same message twice, and a bug in a loop must not inflate the
 /// score. Duplicates are identified by rule id and message, so a rule that
-/// reports several sections still reports each one.
+/// reports several sections still reports each one — as long as the message
+/// names the instance (the section rules include the table index for exactly
+/// this reason).
 #[derive(Debug, Default, Clone)]
 pub struct Findings {
     items: Vec<Finding>,

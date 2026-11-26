@@ -189,6 +189,19 @@ impl Evidence {
         self
     }
 
+    /// Attaches the file offset when it is known.
+    ///
+    /// Used where the offset is computed from the section table: a table that
+    /// was not parsed leaves the offset unknown, and reporting `0` would point
+    /// at the DOS header instead of saying "unknown".
+    #[must_use]
+    pub const fn at_opt(mut self, offset: Option<u64>) -> Self {
+        if let Some(offset) = offset {
+            self.offset = Some(offset);
+        }
+        self
+    }
+
     /// Attaches the value required by the specification.
     #[must_use]
     pub fn expected(mut self, expected: impl Into<String>) -> Self {
