@@ -712,7 +712,8 @@ mod tests {
         ));
 
         // `IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR` is entry 14, eight bytes each.
-        let com = builder.directories_offset() + 14 * 8;
+        let com = builder.directories_offset()
+            + crate::spec::IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR as usize * 8;
         assert!(builder.patch_u32(com, 0x2000));
         assert!(builder.patch_u32(com + 4, 0x48));
 
