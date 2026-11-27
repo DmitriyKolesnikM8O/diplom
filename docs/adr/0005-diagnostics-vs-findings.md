@@ -93,7 +93,7 @@
 
 ## Ссылки
 
-- ADR-0003 — partial parsing и `analysis.partial` в отчёте.
+- ADR-0003 — partial parsing и `parse.status` в отчёте.
 - `docs/architecture.md` — место диагностик в потоке данных.
 - `crates/peaudit-core/src/pe/mod.rs` — реализация в `Parser`.
 - `crates/peaudit-core/src/codes.rs` — реестр и его контракт.

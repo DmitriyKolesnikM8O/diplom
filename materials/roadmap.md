@@ -419,11 +419,12 @@ pub struct RuleMeta {
 
 ```rust
 pub fn analyze(bytes: &[u8], options: &AnalysisOptions) -> Report;
-pub fn analyze_strict(bytes: &[u8], options: &AnalysisOptions) -> Result<Report, AnalysisError>;
 ```
 
 `analyze` не возвращает `Err` никогда: даже полностью невалидный файл даёт отчёт
-с `parse.status = failed` и диагностикой. `analyze_strict` — для тестов парсера.
+с `parse.status = failed` и диагностикой. Отдельного `analyze_strict` нет:
+`--strict` — гейт CLI по диагностикам уровня `error`, разбор он не меняет
+(ADR-0003, `docs/cli.md`).
 
 ### 4.6. Модель ошибок и лимиты
 
@@ -486,7 +487,9 @@ pub struct Limits {
 Дополнительно:
 
 - **Режим парсера:** `lenient` (по умолчанию) / `strict` (`--strict`). Это ортогонально
-  профилям: strict нужен для проверки самого парсера и для тестов.
+  профилям: strict нужен для проверки самого парсера и для тестов. В реализации
+  strict не останавливает разбор, а превращает любую диагностику уровня `error`
+  в код возврата `1` (ADR-0003).
 - **Severity** — свойство находки, **confidence** — уверенность (low/medium/high).
   Скоринг учитывает оба.
 
@@ -1120,11 +1123,11 @@ peaudit version
 
 **DoD.**
 
-- [ ] `peaudit scan notepad.exe` работает и читаем;
-- [ ] `peaudit scan file --json | jq .verdicts` — валидный JSON;
-- [ ] коды возврата покрыты тестами;
-- [ ] `--help` без ошибок, примеры в README;
-- [ ] batch не падает на битом файле (отчёт с ошибкой, остальные обрабатываются).
+- [x] `peaudit scan notepad.exe` работает и читаем;
+- [x] `peaudit scan file --json | jq .verdicts` — валидный JSON;
+- [x] коды возврата покрыты тестами;
+- [x] `--help` без ошибок, примеры в README;
+- [x] batch не падает на битом файле (отчёт с ошибкой, остальные обрабатываются).
 
 **Артефакт для ВКР:** глава 3 (CLI, JSON, интеграция), демонстрация.
 

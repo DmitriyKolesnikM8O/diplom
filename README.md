@@ -32,9 +32,11 @@
 
 ## Статус
 
-Проект в начале разработки. Готов фундамент ядра: безопасный `Reader`, модель
-ошибок и диагностик, safety-лимиты, хэши и энтропия со скользящим окном.
-Парсинг заголовков PE — следующий этап.
+Готовы ядро и первая версия инструмента: безопасный `Reader`, парсер заголовков
+PE/COFF с partial parsing, RVA-маппинг, checksum, энтропия, overlay, движок
+правил с 15 правилами, отчёт со схемой v1.0 и CLI (`scan`, `batch`, `rules`,
+`schema`). Следующие шаги — Rich Header, импорты/экспорты/ресурсы, расширение
+каталога правил.
 
 План работ и текущий прогресс — [`materials/roadmap.md`](materials/roadmap.md).
 Каталог запланированных правил — [`materials/rules_catalog.md`](materials/rules_catalog.md).
@@ -51,12 +53,52 @@ cargo xtask ci
 cargo build --workspace --release
 ```
 
-Пока анализатор — заглушка, но CLI уже собирается, считает хэши и запускается:
+## Использование
 
 ```powershell
-cargo run -p peaudit-cli -- .\file.exe
-cargo run -p peaudit-cli -- .\file.exe --hashes all
+# один файл: сводка, три вердикта, находки с полем и смещением
+peaudit scan .\file.exe
+
+# полный отчёт по схеме v1.0
+peaudit scan .\file.exe --json > report.json
+
+# файл из stdin
+Get-Content .\file.exe -Raw | peaudit scan - --json
+
+# каталог: один JSON-отчёт на строку, рекурсивно, в несколько потоков
+peaudit batch .\samples --recursive --jsonl > reports.jsonl
+
+# каталог правил
+peaudit rules list
+peaudit rules explain PE-SEC-007
+
+# JSON-схема отчёта
+peaudit schema --output report.schema.json
 ```
+
+### Коды возврата
+
+| Код | Значение |
+|---|---|
+| 0 | нет находок на уровне `--fail-on` и выше |
+| 1 | есть находки на уровне `--fail-on` и выше (или `--strict` отверг файл) |
+| 2 | ошибка аргументов или ввода-вывода |
+| 3 | внутренняя ошибка |
+
+По умолчанию гейт — `--fail-on high` по профилю `security`. Невалидный PE —
+не ошибка: печатается отчёт, код зависит от находок.
+
+### Форматы вывода
+
+- без флагов — читаемая сводка;
+- `--json` — полный отчёт по [`docs/report.schema.json`](docs/report.schema.json);
+  `--pretty` добавляет отступы;
+- `--jsonl` — тот же отчёт одной строкой, формат для `batch`.
+
+`--min-severity` скрывает находки только в человекочитаемом выводе: JSON всегда
+содержит все находки и все три вердикта. `--limit KEY=VALUE` переопределяет
+safety-лимиты, например `--limit max-file-size=16777216`. Полный справочник —
+[`docs/cli.md`](docs/cli.md).
 
 ## Структура репозитория
 
@@ -77,6 +119,7 @@ materials/             рабочие материалы ВКР: план, ис�
 | Документ | Содержание |
 |---|---|
 | [`docs/architecture.md`](docs/architecture.md) | слои, поток данных, принципы |
+| [`docs/cli.md`](docs/cli.md) | команды, флаги, коды возврата, лимиты |
 | [`docs/adr/`](docs/adr/) | архитектурные решения: partial parsing, три профиля |
 | [`docs/backlog.md`](docs/backlog.md) | сознательно отложенные идеи |
 | [`docs/experiments/`](docs/experiments/) | зафиксированные замеры производительности |

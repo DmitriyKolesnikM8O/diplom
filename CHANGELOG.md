@@ -37,11 +37,20 @@
 - `docs/report-schema.md` и `docs/report.schema.json`: человекочитаемый и машинный контракт отчёта; тест валидирует реальные отчёты и отдельно проверяет, что валидатор отвергает сломанный документ.
 - `cargo xtask rules-doc`: генерация `docs/rules.md` из `RuleMeta`; тест `rules_doc` падает, если файл разошёлся с кодом.
 - Корпусная проверка правил на 1000 файлах `System32`: 0 находок на всех 15 правилах; счётчики и примеры срабатываний выводятся в `tests/system_corpus.rs`.
+- `peaudit-cli`: команды `scan` (файл или stdin), `batch` (каталог, рекурсия, `std::thread`, до 32 потоков), `rules list|explain`, `schema` (схема вкомпилирована в бинарник), `version`.
+- `peaudit-cli`: форматы вывода — человекочитаемая сводка, `--json` (с `--pretty`), `--jsonl`; `--output FILE`; `--min-severity` фильтрует только человекочитаемый вывод, JSON всегда содержит все находки.
+- `peaudit-cli`: коды возврата как контракт — `0` гейт не сработал, `1` находка на уровне `--fail-on` (или отказ `--strict`), `2` ошибка аргументов/ввода-вывода, `3` внутренняя ошибка; в `batch` код `2` приоритетнее `1`.
+- `peaudit-cli`: гейт по severity отдельной находки выбранного профиля (`--profile`, `--fail-on`), а не по score; `--fail-on never` отключает гейт.
+- `peaudit-cli`: размер входа проверяется до чтения, stdin читается через `Read::take(max + 1)`; `--limit KEY=VALUE` переопределяет safety-лимиты.
+- `peaudit-core`: `HashSelection::NONE` для `--no-hashes`.
+- `docs/cli.md`: справочник по командам, флагам, лимитам, профилям и кодам возврата.
+- Тесты CLI: 23 unit-теста и 29 интеграционных (`assert_cmd`, `predicates`, `tempfile`) — коды возврата, stdin, JSON/JSONL, `--output`, лимиты, `batch`.
 
 ### Fixed
 
 - `peaudit-core`: файл, обрезанный внутри каталога директорий, больше не может получить состояние `complete` — `directories.truncated` стал уровнем `error`, как и усечение любой другой структуры.
 - `peaudit-core`: убран мёртвый путь в разборе подписи `PE\0\0` вместе с недостижимой веткой чтения.
+- `peaudit-core`: `PE-OPT-006` больше не срабатывает на managed-сборках: при непустом каталоге `IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR` точку входа задаёт CLI-заголовок, и `AddressOfEntryPoint = 0` законен (`powershell_ise.exe` — реальный пример). Условие уточнено в `materials/rules_catalog.md`.
 
 ### Changed
 
@@ -52,3 +61,6 @@
 - `peaudit-core` получил зависимость `serde` (сериализация отчёта) и dev-зависимость `serde_json` (тесты схемы); `xtask` зависит от `peaudit-core` для генерации `docs/rules.md`.
 - `materials/rules_catalog.md`: добавлен раздел 0 «Покрыто диагностикой парсера (ADR-0005)» — `PE-DOS-001/002/003/006`, `PE-COFF-002`, `PE-OPT-001`, `PE-OPT-007`.
 - Тесты ядра: 254 unit-теста (+2 `ignored`), 11 тестов схемы отчёта, 1 тест актуальности `docs/rules.md`.
+- Тесты ядра: 256 unit-тестов (+2 `ignored`); `peaudit-cli` — 23 unit-теста и 29 интеграционных.
+- `peaudit-cli` получил dev-зависимости `assert_cmd`, `predicates`, `tempfile` (MIT/Apache-2.0, только тесты; ядро не затронуто).
+- `--strict` реализован как гейт по диагностикам уровня `error`, а не как отказ от partial parsing: парсер всегда разбирает столько, сколько может, а флаг только меняет код возврата. ADR-0003 уточнён под это поведение.

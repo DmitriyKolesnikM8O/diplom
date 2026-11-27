@@ -46,6 +46,17 @@ impl HashSelection {
         md5: true,
     };
 
+    /// No digest at all.
+    ///
+    /// Used by callers that only need the structural analysis, such as
+    /// `peaudit scan --no-hashes`: skipping the passes keeps a batch scan fast
+    /// when the file identity is not needed.
+    pub const NONE: Self = Self {
+        sha256: false,
+        sha1: false,
+        md5: false,
+    };
+
     /// Returns `true` if no digest is selected.
     #[must_use]
     pub const fn is_empty(self) -> bool {

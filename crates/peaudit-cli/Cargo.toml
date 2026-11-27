@@ -19,3 +19,10 @@ workspace = true
 [dependencies]
 peaudit-core = { path = "../peaudit-core" }
 clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
