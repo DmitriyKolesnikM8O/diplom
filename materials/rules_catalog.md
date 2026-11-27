@@ -76,7 +76,7 @@
 | PE-OPT-003 | `SizeOfHeaders` неверен | меньше фактического конца заголовков или не кратен `FileAlignment` | High | S L | high | low | P0 |
 | PE-OPT-004 | `FileAlignment` неверен | не степень двойки или вне `[512, 64K]` (кроме low-alignment образов, где `SectionAlignment < 0x1000` и `FileAlignment == SectionAlignment`) | High | S L | high | low | P1 |
 | PE-OPT-005 | `SectionAlignment` неверен | 0, не степень двойки, меньше `FileAlignment` | High | S L | high | low | P1 |
-| PE-OPT-006 | Точка входа | `AddressOfEntryPoint == 0` у EXE или вне исполняемой секции | High | S L Sec | high | med* | P0 |
+| PE-OPT-006 | Точка входа | `AddressOfEntryPoint == 0` у EXE (кроме managed сборок с CLR-заголовком) или вне исполняемой секции | High | S L Sec | high | med* | P0 |
 | PE-OPT-007 | Каталоги за пределами | `NumberOfRvaAndSizes > 16` или директории выходят за `SizeOfOptionalHeader` | High | S L | high | low | P0 |
 | PE-OPT-008 | Контрольная сумма | `CheckSum != 0` и не совпадает с расчётной | Low | S Sec | high | med** | P1 |
 | PE-OPT-009 | `ImageBase` не выровнен | не кратен 64 КиБ | Medium | S L | high | low | P2 |

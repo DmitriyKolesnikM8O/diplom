@@ -282,7 +282,9 @@ impl EntryPoint {
                       образа без флага DLL нулевая точка входа означает, что запускать нечего. \
                       Ненулевая точка входа, не попадающая ни в одну секцию с правом \
                       выполнения или с кодом, означает, что загрузчик передаст управление \
-                      данным, а не коду. У DLL нулевая точка входа допустима.",
+                      данным, а не коду. У DLL нулевая точка входа допустима, как и у managed \
+                      сборки: CLR берёт точку входа из CLI-заголовка, а не из \
+                      AddressOfEntryPoint.",
         severity: Severity::High,
         confidence: Confidence::High,
         category: Category::OptionalHeader,
@@ -291,6 +293,17 @@ impl EntryPoint {
         references: &[PE_SPEC, "materials/rules_catalog.md"],
         since: "0.1.0",
     };
+}
+
+/// Returns `true` when the image declares a CLR runtime header.
+///
+/// A non-empty `IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR` entry marks a managed
+/// assembly, whose entry point lives in the CLI header.
+fn is_managed(file: &crate::pe::PeFile) -> bool {
+    file.directories.iter().any(|directory| {
+        directory.index == spec::IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR
+            && (directory.virtual_address != 0 || directory.size != 0)
+    })
 }
 
 impl Rule for EntryPoint {
@@ -308,6 +321,12 @@ impl Rule for EntryPoint {
             .saturating_add(optional::ADDRESS_OF_ENTRY_POINT_OFFSET)) as u64;
 
         if entry == 0 {
+            // A managed assembly takes its entry point from the CLI header, so
+            // zero here says nothing about the image (PowerShell ISE is a real
+            // example).
+            if is_managed(ctx.file) {
+                return;
+            }
             if !coff.is_dll() && coff.is_executable_image() {
                 out.push(
                     Self::META
@@ -665,6 +684,37 @@ mod tests {
             builder.coff_offset() + crate::pe::coff::CHARACTERISTICS_OFFSET,
             crate::pe::coff::FILE_DLL | crate::pe::coff::FILE_EXECUTABLE_IMAGE
         ));
+
+        let findings = test_support::run(&EntryPoint, &builder);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn an_empty_entry_point_in_a_native_executable_is_a_finding() {
+        let mut builder = PeBuilder::pe32();
+        assert!(patch_u32(
+            &mut builder,
+            optional::ADDRESS_OF_ENTRY_POINT_OFFSET,
+            0
+        ));
+
+        let findings = test_support::run(&EntryPoint, &builder);
+        assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn an_empty_entry_point_is_allowed_in_a_managed_image() {
+        let mut builder = PeBuilder::pe32();
+        assert!(patch_u32(
+            &mut builder,
+            optional::ADDRESS_OF_ENTRY_POINT_OFFSET,
+            0
+        ));
+
+        // `IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR` is entry 14, eight bytes each.
+        let com = builder.directories_offset() + 14 * 8;
+        assert!(builder.patch_u32(com, 0x2000));
+        assert!(builder.patch_u32(com + 4, 0x48));
 
         let findings = test_support::run(&EntryPoint, &builder);
         assert!(findings.is_empty());

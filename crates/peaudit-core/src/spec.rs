@@ -22,6 +22,14 @@ pub const MAX_SECTIONS: usize = 96;
 /// `NumberOfRvaAndSizes` claims more.
 pub const MAX_DATA_DIRECTORIES: usize = 16;
 
+/// Index of the CLR runtime header in the data directory array
+/// (`IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR`).
+///
+/// A non-empty entry marks a managed assembly. The CLR takes the entry point
+/// from the CLI header, so `AddressOfEntryPoint` is legitimately zero even in
+/// an executable image.
+pub const IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR: u32 = 14;
+
 /// Resource tree depth defined by the PE specification: type, name, language.
 pub const RESOURCE_TREE_DEPTH: u8 = 3;
 
