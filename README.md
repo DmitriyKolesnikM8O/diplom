@@ -60,13 +60,13 @@ cargo build --workspace --release
 peaudit scan .\file.exe
 
 # полный отчёт по схеме v1.0
-peaudit scan .\file.exe --json > report.json
+peaudit scan .\file.exe --json --output report.json
 
-# файл из stdin
-Get-Content .\file.exe -Raw | peaudit scan - --json
+# файл из stdin: `Get-Content -Raw` испортил бы двоичные данные
+cmd /c "peaudit scan - --json < file.exe"
 
 # каталог: один JSON-отчёт на строку, рекурсивно, в несколько потоков
-peaudit batch .\samples --recursive --jsonl > reports.jsonl
+peaudit batch .\samples --recursive --jsonl --output reports.jsonl
 
 # каталог правил
 peaudit rules list
@@ -75,6 +75,9 @@ peaudit rules explain PE-SEC-007
 # JSON-схема отчёта
 peaudit schema --output report.schema.json
 ```
+
+> В PowerShell 5.1 оператор `>` пишет UTF-16, поэтому для JSON используйте
+> `--output` (или `cmd /c`, если нужен именно редирект).
 
 ### Коды возврата
 

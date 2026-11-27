@@ -9,6 +9,7 @@ peaudit scan <FILE> [--json|--jsonl] [--pretty] [--profile ...] [--strict]
                     [--fail-on ...] [--min-severity ...] [--output FILE]
                     [--hashes ...] [--no-hashes] [--limit KEY=VALUE]...
 peaudit batch <DIR> [--recursive] [--jobs N] [--jsonl] [--all-files]
+                    [--output FILE]
                     [--profile ...] [--fail-on ...] [--strict]
                     [--hashes ...] [--no-hashes] [--limit KEY=VALUE]...
 peaudit rules list [--json]
@@ -46,11 +47,17 @@ peaudit version
 | `--jobs N` | `0` (все CPU) | Число потоков, максимум 32 |
 | `--jsonl` | выкл. | Один отчёт на строку вместо сводки |
 | `--all-files` | выкл. | Брать все файлы, а не только PE-расширения |
+| `--output FILE` | stdout | Записать вывод в файл (`-` = stdout) |
 | `--profile`, `--fail-on`, `--strict`, `--hashes`, `--no-hashes`, `--limit` | как у `scan` | — |
 
 Без `--all-files` сканируются файлы с расширениями `exe`, `dll`, `sys`, `ocx`,
 `cpl`, `scr` (регистр не важен). Порядок вывода — лексикографический порядок
 путей, независимо от числа потоков.
+
+Симлинки и Windows junction'ы не обходятся: `DirEntry::file_type` не следует по
+ссылкам, поэтому цикл через junction (например, `AppData\Local\Application Data`)
+невозможен. Отчёты собираются в память и печатаются после обхода, чтобы порядок
+был детерминированным; на очень больших каталогах это стоит помнить.
 
 Человекочитаемый режим печатает строку на файл и итог:
 
@@ -61,10 +68,10 @@ analyzed: 2, with findings: 1, errors: 0
 worst: spec 0 (clean), loader 0 (clean), security 10 (low)
 ```
 
-В `--jsonl` каждая строка — самостоятельный отчёт по схеме. Файл, который не
-удалось прочитать, отчёта не имеет: сообщение уходит в stderr, счётчик `errors`
-растёт, но остальные файлы обрабатываются. Битый PE — не ошибка: он даёт отчёт
-с `parse.status` `failed` или `partial`.
+В `--jsonl` каждая строка — самостоятельный отчёт по схеме, итоговая сводка не
+печатается. Файл, который не удалось прочитать, отчёта не имеет: сообщение
+уходит в stderr, код возврата становится `2`, остальные файлы обрабатываются.
+Битый PE — не ошибка: он даёт отчёт с `parse.status` `failed` или `partial`.
 
 ## `rules`
 
@@ -111,8 +118,9 @@ worst: spec 0 (clean), loader 0 (clean), security 10 (low)
 уровня `error` — то есть ему пришлось остановиться раньше или пропустить
 структуру ([ADR-0003](adr/0003-partial-parsing.md)). Разбор при этом не
 прерывается: partial parsing — режим по умолчанию, и отчёт всё равно печатается.
-Флаг предназначен для проверки самого парсера и для CI, а не для анализа
-образцов.
+В режиме `--json`/`--jsonl` отказ виден только по коду возврата: документ
+остаётся обычным отчётом. Флаг предназначен для проверки самого парсера и для
+CI, а не для анализа образцов.
 
 ## Ввод и лимиты
 
@@ -139,7 +147,7 @@ worst: spec 0 (clean), loader 0 (clean), security 10 (low)
 
 ```yaml
 - name: Analyze the build output
-  run: peaudit batch .\target\release --jsonl > reports.jsonl
+  run: peaudit batch ./target/release --jsonl --output reports.jsonl
   # код 1 остановит job, если найдена находка high и выше в профиле security
 ```
 

@@ -41,13 +41,13 @@ pub fn read_file(path: &Path, max: u64) -> Result<Vec<u8>, CliError> {
         return Err(CliError::usage(format!("{name}: not a regular file")));
     }
     if metadata.len() > max {
-        return Err(too_large(&name, metadata.len(), max));
+        return Err(too_large(&name, Some(metadata.len()), max));
     }
 
     let data = fs::read(path).map_err(|error| CliError::io(&name, error))?;
     // The file may have grown between `metadata` and `read`.
     if data.len() as u64 > max {
-        return Err(too_large(&name, data.len() as u64, max));
+        return Err(too_large(&name, Some(data.len() as u64), max));
     }
     Ok(data)
 }
@@ -61,15 +61,24 @@ fn read_bounded(mut reader: impl Read, max: u64, name: &str) -> Result<Vec<u8>, 
         .map_err(|error| CliError::io(name, error))?;
 
     if buffer.len() as u64 > max {
-        return Err(too_large(name, buffer.len() as u64, max));
+        return Err(too_large(name, None, max));
     }
     Ok(buffer)
 }
 
-fn too_large(name: &str, size: u64, max: u64) -> CliError {
-    CliError::usage(format!(
-        "{name}: {size} bytes exceeds the limit of {max} bytes; raise it with --limit max-file-size=<BYTES>"
-    ))
+fn too_large(name: &str, size: Option<u64>, max: u64) -> CliError {
+    // For a file the size is known. For stdin only "more than the limit" is
+    // known, because the probe stops at `max + 1` bytes: reporting that probe
+    // size as the input size would be a lie.
+    let hint = "raise it with --limit max-file-size=<BYTES>";
+    match size {
+        Some(size) => CliError::usage(format!(
+            "{name}: {size} bytes exceeds the limit of {max} bytes; {hint}"
+        )),
+        None => CliError::usage(format!(
+            "{name}: the input is larger than the limit of {max} bytes; {hint}"
+        )),
+    }
 }
 
 #[cfg(test)]
@@ -86,7 +95,11 @@ mod tests {
     fn a_bounded_read_rejects_one_byte_more() {
         let error = read_bounded(&b"12345"[..], 4, "<test>").expect_err("over the limit");
         assert_eq!(error.exit_code(), 2);
-        assert!(error.to_string().contains("exceeds the limit"));
+        assert!(
+            error
+                .to_string()
+                .contains("larger than the limit of 4 bytes")
+        );
     }
 
     #[test]
@@ -95,6 +108,13 @@ mod tests {
         // not read the whole slice.
         let input = vec![0u8; 1024 * 1024];
         let error = read_bounded(&input[..], 16, "<test>").expect_err("over the limit");
-        assert!(error.to_string().contains("17 bytes"));
+        assert!(
+            error
+                .to_string()
+                .contains("larger than the limit of 16 bytes")
+        );
+        // The probe size (17) is not the input size and must not be reported
+        // as one.
+        assert!(!error.to_string().contains("17 bytes"));
     }
 }

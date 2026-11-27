@@ -5,7 +5,7 @@
 //! finding crosses the `--fail-on` threshold.
 
 use std::fmt;
-use std::io;
+use std::io::{self, Write};
 
 /// Exit codes of the `peaudit` binary.
 pub mod exit {
@@ -74,6 +74,15 @@ impl CliError {
             Self::Io { source, .. } if source.kind() == io::ErrorKind::BrokenPipe
         )
     }
+}
+
+/// Writes a diagnostic line to stderr, ignoring a failure to do so.
+///
+/// `eprintln!` panics when stderr is closed. A closed stderr is an environment
+/// problem, not a reason for the tool to abort with a panic, so the result is
+/// deliberately ignored.
+pub fn report_to_stderr(message: &str) {
+    let _ = writeln!(io::stderr().lock(), "{message}");
 }
 
 impl fmt::Display for CliError {

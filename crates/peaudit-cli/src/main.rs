@@ -21,7 +21,8 @@ use std::process::ExitCode;
 use clap::Parser;
 
 use crate::cli::{Cli, Command};
-use crate::error::CliError;
+use crate::error::{CliError, report_to_stderr};
+use crate::output::Sink;
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -34,7 +35,7 @@ fn main() -> ExitCode {
             if error.is_broken_pipe() {
                 return ExitCode::SUCCESS;
             }
-            eprintln!("peaudit: {error}");
+            report_to_stderr(&format!("peaudit: {error}"));
             ExitCode::from(error.exit_code())
         }
     }
@@ -47,11 +48,15 @@ fn dispatch(cli: &Cli) -> Result<u8, CliError> {
         Command::Rules { command } => rules::run(command),
         Command::Schema(args) => schema::run(args),
         Command::Version => {
-            println!(
+            // Goes through `Sink` so a closed stdout (`peaudit version | head`)
+            // is a broken pipe, not a panic from `println!`.
+            let mut sink = Sink::open(None)?;
+            sink.write_line(&format!(
                 "peaudit {} (report schema {})",
                 peaudit_core::version(),
                 peaudit_core::SCHEMA_VERSION
-            );
+            ))?;
+            sink.finish()?;
             Ok(error::exit::OK)
         }
     }

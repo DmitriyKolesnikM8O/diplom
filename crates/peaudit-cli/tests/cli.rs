@@ -222,6 +222,39 @@ fn strict_rejects_a_partial_parse() {
 }
 
 #[test]
+fn strict_accepts_a_complete_parse() {
+    let dir = TempDir::new().unwrap();
+    let path = write(&dir, "clean.exe", &clean_pe());
+
+    peaudit()
+        .arg("scan")
+        .arg(&path)
+        .arg("--strict")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("strict: accepted"));
+}
+
+#[test]
+fn strict_is_visible_only_through_the_exit_code_in_json_mode() {
+    let dir = TempDir::new().unwrap();
+    let bytes = clean_pe();
+    let path = write(&dir, "truncated.exe", &bytes[..0x100]);
+
+    let output = peaudit()
+        .arg("scan")
+        .arg(&path)
+        .args(["--strict", "--json"])
+        .output()
+        .unwrap();
+
+    // The document stays a normal report; the rejection is the exit code.
+    assert_eq!(output.status.code(), Some(1));
+    let report = json_report(&output.stdout);
+    assert_eq!(report["parse"]["status"], "partial");
+}
+
+#[test]
 fn the_file_size_limit_is_checked_before_reading() {
     let dir = TempDir::new().unwrap();
     let path = write(&dir, "clean.exe", &clean_pe());
@@ -429,6 +462,87 @@ fn batch_human_output_ends_with_a_summary() {
         .success()
         .stdout(predicate::str::contains("analyzed: 1"))
         .stdout(predicate::str::contains("worst:"));
+}
+
+#[test]
+fn batch_io_error_takes_priority_over_a_gate_hit() {
+    let dir = TempDir::new().unwrap();
+    write(&dir, "dirty.exe", &writable_executable_pe());
+
+    // Above the per-run limit: this file cannot be read at all.
+    let mut oversized = clean_pe();
+    oversized.resize(4096, 0);
+    std::fs::write(dir.path().join("oversized.exe"), &oversized).unwrap();
+
+    let output = peaudit()
+        .args(["batch"])
+        .arg(dir.path())
+        .args(["--limit", "max-file-size=2048"])
+        .output()
+        .unwrap();
+
+    // The finding on `dirty.exe` would give 1; an unreadable input wins with 2.
+    assert_eq!(output.status.code(), Some(2));
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("findings 1"), "{text}");
+    assert!(text.contains("exceeds the limit"), "{text}");
+    assert!(text.contains("errors: 1"), "{text}");
+    // The path appears once, not as `path: error: path: ...`.
+    assert_eq!(text.matches("oversized.exe").count(), 1, "{text}");
+}
+
+#[test]
+fn batch_output_is_sorted_whatever_the_job_count() {
+    let dir = TempDir::new().unwrap();
+    for name in ["c.exe", "a.exe", "b.dll"] {
+        write(&dir, name, &clean_pe());
+    }
+
+    let output = peaudit()
+        .args(["batch"])
+        .arg(dir.path())
+        .args(["--jobs", "4", "--jsonl"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let text = String::from_utf8(output.stdout).unwrap();
+    let paths: Vec<String> = text
+        .lines()
+        .map(|line| {
+            let report: Value = serde_json::from_str(line).expect("valid JSON line");
+            report["file"]["path"]
+                .as_str()
+                .expect("path is present")
+                .to_owned()
+        })
+        .collect();
+
+    let mut sorted = paths.clone();
+    sorted.sort();
+    assert_eq!(paths, sorted);
+    assert_eq!(paths.len(), 3);
+}
+
+#[test]
+fn batch_output_can_go_to_a_file() {
+    let dir = TempDir::new().unwrap();
+    write(&dir, "clean.exe", &clean_pe());
+    let report_path = dir.path().join("reports.jsonl");
+
+    let output = peaudit()
+        .args(["batch"])
+        .arg(dir.path())
+        .args(["--jsonl", "--output"])
+        .arg(&report_path)
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stdout.is_empty());
+    let text = std::fs::read_to_string(&report_path).unwrap();
+    assert_eq!(text.lines().count(), 1);
+    serde_json::from_str::<Value>(text.trim()).expect("valid JSON line");
 }
 
 // ---------------------------------------------------------------------------

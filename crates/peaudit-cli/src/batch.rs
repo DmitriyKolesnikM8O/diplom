@@ -18,7 +18,7 @@ use peaudit_core::analysis::scoring::Level;
 use peaudit_core::report::Report;
 
 use crate::cli::{BatchArgs, OutputFormat};
-use crate::error::{CliError, exit};
+use crate::error::{CliError, exit, report_to_stderr};
 use crate::input;
 use crate::options::{Gate, has_error_diagnostic, limits_from};
 use crate::output::Sink;
@@ -41,7 +41,7 @@ pub fn run(args: &BatchArgs) -> Result<u8, CliError> {
     let jobs = effective_jobs(args.jobs, files.len());
     let results = analyze_all(&files, &options, jobs)?;
 
-    let mut sink = Sink::open(None)?;
+    let mut sink = Sink::open(args.output.as_deref())?;
     let mut summary = Summary::default();
     let mut failed = false;
     let mut io_error = false;
@@ -69,9 +69,11 @@ pub fn run(args: &BatchArgs) -> Result<u8, CliError> {
                 if args.jsonl {
                     // JSONL carries reports only; an unreadable file has no
                     // report, so it goes to stderr and the exit code.
-                    eprintln!("peaudit: {error}");
+                    report_to_stderr(&format!("peaudit: {error}"));
                 } else {
-                    sink.write_line(&format!("{}: error: {error}", path.display()))?;
+                    // `read_file` already names the path, so a second prefix
+                    // would repeat it.
+                    sink.write_line(&error.to_string())?;
                 }
             }
         }
@@ -184,6 +186,9 @@ fn collect_files(root: &Path, recursive: bool, all_files: bool) -> Result<Vec<Pa
                 .file_type()
                 .map_err(|error| CliError::io(path.display().to_string(), error))?;
 
+            // `DirEntry::file_type` does not follow links, so a symlinked
+            // directory or a Windows junction is neither a file nor a
+            // directory here: it is skipped and recursion cannot loop.
             if file_type.is_dir() {
                 if recursive {
                     pending.push(path);
@@ -304,5 +309,31 @@ mod tests {
         assert_eq!(effective_jobs(8, 2), 2);
         assert_eq!(effective_jobs(0, 0), 1);
         assert_eq!(effective_jobs(1000, 1000), MAX_JOBS);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_junction_is_not_followed() {
+        use super::collect_files;
+        use std::process::Command;
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let sub = dir.path().join("sub");
+        std::fs::create_dir(&sub).expect("create sub");
+        std::fs::write(sub.join("a.exe"), b"x").expect("write file");
+
+        let link = dir.path().join("link");
+        let created = Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&link)
+            .arg(&sub)
+            .status();
+        // A junction needs no privilege, but a locked-down machine may refuse.
+        if !matches!(created, Ok(status) if status.success()) {
+            return;
+        }
+
+        let files = collect_files(dir.path(), true, true).expect("collect");
+        assert_eq!(files.len(), 1, "a junction must not be followed: {files:?}");
     }
 }

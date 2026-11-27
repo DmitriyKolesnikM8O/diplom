@@ -108,6 +108,9 @@ pub struct BatchArgs {
     /// Print one JSON report per line instead of a human summary.
     #[arg(long)]
     pub jsonl: bool,
+    /// Write the output to a file instead of stdout.
+    #[arg(long, value_name = "FILE")]
+    pub output: Option<String>,
     /// Scan every regular file, not only known PE extensions.
     #[arg(long)]
     pub all_files: bool,
